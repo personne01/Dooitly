@@ -11,9 +11,16 @@ import { Language } from '../data/translations';
 interface ScamProps {
   language: Language;
   t: any;
+  activeQuestInProgressId?: string | null;
+  onCompleteQuest?: (questId: string) => void;
 }
 
-export default function ScamDetectorView({ language, t }: ScamProps) {
+export default function ScamDetectorView({ 
+  language, 
+  t,
+  activeQuestInProgressId,
+  onCompleteQuest
+}: ScamProps) {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ScamAnalysis | null>(null);
@@ -119,7 +126,47 @@ export default function ScamDetectorView({ language, t }: ScamProps) {
   };
 
   return (
-    <div id="scam_detector_root" className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div className="space-y-6 font-sans">
+      {/* Active Quest Banner */}
+      {activeQuestInProgressId === 'quest-2' && (
+        <div className="bg-amber-500/5 border border-amber-500/30 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-[0_0_20px_rgba(245,158,11,0.05)] animate-fade-in">
+          <div className="space-y-1">
+            <span className="inline-flex items-center gap-1 text-[9px] bg-amber-500 text-black font-mono font-black px-2 py-0.5 rounded uppercase tracking-wider font-bold">
+              <Sparkles className="w-3 h-3 animate-spin" />
+              {language === 'id' ? 'MISI AKTIF BERJALAN' : 'ACTIVE QUEST'}
+            </span>
+            <h4 className="text-xs font-bold text-white mt-1 uppercase tracking-tight font-mono">
+              {language === 'id' ? 'Bongkar & Audit Skema Penipuan Finansial!' : 'Expose and Audit High-Yield Scam Pitch!'}
+            </h4>
+            <p className="text-[11px] text-zinc-300 leading-relaxed font-sans">
+              {language === 'id' 
+                ? 'Misi dimulai! Silakan ketik, salin pesan penawaran mencurigakan Anda sendiri, atau klik salah satu Skenario Simulasi cepat di sebelah kiri untuk memindainya dengan mesin AI anti-fraud kami demi menyelesaikan misi.'
+                : 'Active Quest Started! Paste any high-yield proposal or select a mock simulation scenario on the left, then run the AI Sentinel Scan to classify fraud risk criteria and secure 500 XP.'}
+            </p>
+          </div>
+          {analysis && onCompleteQuest ? (
+            <button
+              id="claim_scammed_quest_rewards_btn"
+              onClick={() => {
+                onCompleteQuest('quest-2');
+                alert(language === 'id' 
+                  ? 'Selamat! Misi Selesai! Anda berhasil mendeteksi indikator penipuan dan mengamankan 500 XP ke profil RPG Anda.' 
+                  : 'Congratulations! Quest complete. You ran a successful deep sentinel audit on a sketchy deal and earned 500 XP.'
+                );
+              }}
+              className="py-2 px-4 bg-amber-500 hover:bg-amber-400 text-black text-xs font-mono font-bold rounded-xl transition cursor-pointer self-start sm:self-center uppercase"
+            >
+              {language === 'id' ? 'Verifikasi & Selesaikan Misi' : 'Verify & Claim XP'}
+            </button>
+          ) : (
+            <div className="text-[10px] text-zinc-500 font-mono border border-white/5 bg-zinc-950 px-3 py-1.5 rounded-lg whitespace-nowrap self-start sm:self-center">
+              {language === 'id' ? 'Jalankan Audit Pemindaian Terlebih Dahulu' : 'Run Anti-Fraud Scan First'}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div id="scam_detector_root" className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
       {/* Input panel */}
       <div className="lg:col-span-5 bg-[#0a0a0a] p-6 rounded-2xl border border-white/5 shadow-xl space-y-6">
@@ -277,6 +324,7 @@ export default function ScamDetectorView({ language, t }: ScamProps) {
         )}
       </div>
 
+    </div>
     </div>
   );
 }

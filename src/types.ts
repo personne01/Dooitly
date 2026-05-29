@@ -29,6 +29,14 @@ export interface UserPreferences {
   riskAppetite: 'conservative' | 'moderate' | 'aggressive';
 }
 
+export interface Subscription {
+  id: string;
+  name: string;
+  cost: number;
+  isActive: boolean;
+  description: string;
+}
+
 export interface MonthlyRecap {
   id: string;
   monthYear: string; // e.g. "Mei 2026"
@@ -101,4 +109,15 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: string;
+}
+
+export interface Asset {
+  id: string;
+  name: string;
+  category: 'cash' | 'stock' | 'crypto' | 'property' | 'gold' | 'other';
+  value: number;
+  expectedReturn: number; // e.g. 8 for 8% annual return
+  institution?: string; // bank name/exchange/broker
+  createdAt?: string;
+  updatedAt?: string;
 }

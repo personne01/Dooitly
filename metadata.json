@@ -1,5 +1,5 @@
 {
-  "name": "AturDuit AI",
+  "name": "dooitly",
   "description": "A futuristic AI-powered operating system for personal finance, risk detection, behavior analysis, and wealth simulation.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

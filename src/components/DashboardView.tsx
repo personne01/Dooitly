@@ -3,12 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   DollarSign, TrendingUp, ShieldAlert, Award, Star, AppWindow, 
-  HelpCircle, CreditCard, ChevronRight, CheckCircle2, Search, Sparkles, RefreshCw, Trash2, PlusCircle
+  HelpCircle, CreditCard, ChevronRight, CheckCircle2, Search, Sparkles, RefreshCw, Trash2, PlusCircle,
+  Activity, Target, Cpu, BookOpen, Clock, Compass, HelpCircle as TooltipIcon, Lightbulb, Loader2, AlertTriangle, Download, Layers, PieChart as PieChartIcon
 } from 'lucide-react';
-import { Transaction, FinancialGoal, UserPreferences, InvestmentExplanation, MonthlyRecap } from '../types';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts';
+import { Transaction, FinancialGoal, UserPreferences, InvestmentExplanation, MonthlyRecap, Subscription, Asset } from '../types';
 import { FINTECH_QUESTS } from '../data/mockTransactions';
 import { Language } from '../data/translations';
 
@@ -26,12 +30,23 @@ interface DashProps {
   onAddMonthlyRecap: (recap: Omit<MonthlyRecap, 'id'>) => void;
   onApplyMonthlyRecap: (recap: MonthlyRecap) => void;
   onDeleteMonthlyRecap: (recapId: string) => void;
+  onAddTransaction: (desc: string, amount: number, cat: string, type: 'income' | 'expense') => void;
+  onDeleteTransaction: (txId: string) => void;
+  subscriptions: Subscription[];
+  onDeleteSubscription: (id: string) => void;
+  activeQuestInProgressId: string | null;
+  setActiveQuestInProgressId: (id: string | null) => void;
+  questsList: any[];
+  onCompleteQuest: (questId: string) => void;
+  assets: Asset[];
 }
+
+import HealthAnalyzerView from './HealthAnalyzerView';
 
 export default function DashboardView({ 
   preferences, 
   transactions, 
-  goals, 
+  goals,                
   onChangePreferences, 
   onNavigateToTab,
   onAddGoal,
@@ -41,12 +56,91 @@ export default function DashboardView({
   monthlyRecaps,
   onAddMonthlyRecap,
   onApplyMonthlyRecap,
-  onDeleteMonthlyRecap
+  onDeleteMonthlyRecap,
+  onAddTransaction,
+  onDeleteTransaction,
+  subscriptions,
+  onDeleteSubscription,
+  activeQuestInProgressId,
+  setActiveQuestInProgressId,
+  questsList,
+  onCompleteQuest,
+  assets
 }: DashProps) {
-  const [activeQuests, setActiveQuests] = useState(FINTECH_QUESTS);
-  const [tickerSearch, setTickerSearch] = useState('');
-  const [isLoadingTicker, setIsLoadingTicker] = useState(false);
-  const [tickerReport, setTickerReport] = useState<InvestmentExplanation | null>(null);
+  const componentRef = useRef<HTMLDivElement>(null);
+
+  const [isExportOpen, setIsExportOpen] = useState(false);
+
+  const exportToPDF = async () => {
+    if (!componentRef.current) return;
+    const canvas = await html2canvas(componentRef.current);
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+    pdf.save('hud_dashboard.pdf');
+  };
+
+  const exportToCSV = (type: 'transactions' | 'assets') => {
+    let headers: string[] = [];
+    let rows: string[][] = [];
+    let filename = '';
+
+    if (type === 'transactions') {
+      headers = ['Date', 'Description', 'Category', 'Type', 'Amount'];
+      rows = transactions.map(tx => [
+        tx.date || '',
+        `"${(tx.description || '').replace(/"/g, '""')}"`,
+        tx.category || '',
+        tx.type || '',
+        tx.amount.toString()
+      ]);
+      filename = 'hud_transactions.csv';
+    } else {
+      headers = ['Asset Name', 'Category', 'Value', 'Expected Return (%)', 'Institution'];
+      rows = assets.map(a => [
+        `"${a.name.replace(/"/g, '""')}"`,
+        a.category,
+        a.value.toString(),
+        a.expectedReturn.toString(),
+        `"${(a.institution || '').replace(/"/g, '""')}"`
+      ]);
+      filename = 'hud_assets.csv';
+    }
+
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportToJSON = () => {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      currency: preferences.currency,
+      preferences,
+      transactions,
+      assets,
+      goals,
+      subscriptions
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", 'hud_dashboard_data.json');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Goal Form Fields
   const [isAddingGoal, setIsAddingGoal] = useState(false);
@@ -63,42 +157,130 @@ export default function DashboardView({
   const [editInvestment, setEditInvestment] = useState(preferences.monthlyInvestment.toString());
   const [editRisk, setEditRisk] = useState(preferences.riskAppetite);
 
-  // Monthly Recap Form Fields
-  const [isAddingRecap, setIsAddingRecap] = useState(false);
-  const [recapMonthYear, setRecapMonthYear] = useState('');
-  const [recapIncome, setRecapIncome] = useState('');
-  const [recapExpense, setRecapExpense] = useState('');
-  const [recapSavings, setRecapSavings] = useState('');
-  const [recapInvestment, setRecapInvestment] = useState('');
+  // Dynamic Transaction-based Multi-timeframe Trend Selector
+  const [trendTimeframe, setTrendTimeframe] = useState<'harian' | 'mingguan' | 'bulanan' | 'tahunan'>('bulanan');
 
-  const handleCreateRecap = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!recapMonthYear) return;
-    onAddMonthlyRecap({
-      monthYear: recapMonthYear,
-      monthlyIncome: parseFloat(recapIncome) || 0,
-      monthlyExpense: parseFloat(recapExpense) || 0,
-      currentSavings: parseFloat(recapSavings) || 0,
-      monthlyInvestment: parseFloat(recapInvestment) || 0,
+  const getAggregatedTrendData = () => {
+    const groups: Record<string, { label: string; monthlyIncome: number; monthlyExpense: number; timestamp: number }> = {};
+    const monthsId = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    const monthsEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = language === 'id' ? monthsId : monthsEn;
+
+    transactions.forEach(tx => {
+      if (!tx.date) return;
+      const dateObj = new Date(tx.date);
+      if (isNaN(dateObj.getTime())) return;
+
+      let key = '';
+      let label = '';
+      let timestamp = dateObj.getTime();
+
+      if (trendTimeframe === 'harian') {
+        key = tx.date;
+        const parts = tx.date.split('-');
+        if (parts.length === 3) {
+          const [, month, day] = parts;
+          const mName = months[parseInt(month, 10) - 1] || '';
+          label = `${parseInt(day, 10)} ${mName}`;
+        } else {
+          label = tx.date;
+        }
+      } else if (trendTimeframe === 'mingguan') {
+        const day = dateObj.getDay();
+        const diff = dateObj.getDate() - day + (day === 0 ? -6 : 1);
+        const startOfWeek = new Date(dateObj.setDate(diff));
+        key = startOfWeek.toISOString().split('T')[0];
+        const parts = key.split('-');
+        if (parts.length === 3) {
+          const [, month, dayNum] = parts;
+          const mName = months[parseInt(month, 10) - 1] || '';
+          label = language === 'id' ? `Minggu ${parseInt(dayNum, 10)} ${mName}` : `W/o ${parseInt(dayNum, 10)} ${mName}`;
+        } else {
+          label = key;
+        }
+        timestamp = startOfWeek.getTime();
+      } else if (trendTimeframe === 'bulanan') {
+        const parts = tx.date.split('-');
+        const year = parts[0];
+        const month = parts[1];
+        key = `${year}-${month}`;
+        const mName = months[parseInt(month, 10) - 1] || '';
+        label = `${mName} ${year}`;
+        timestamp = new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1).getTime();
+      } else {
+        // tahunan
+        const year = tx.date.split('-')[0];
+        key = year;
+        label = year;
+        timestamp = new Date(parseInt(year, 10), 0, 1).getTime();
+      }
+
+      if (!groups[key]) {
+        groups[key] = {
+          label,
+          monthlyIncome: 0,
+          monthlyExpense: 0,
+          timestamp
+        };
+      }
+
+      if (tx.type === 'income') {
+        groups[key].monthlyIncome += tx.amount;
+      } else {
+        groups[key].monthlyExpense += tx.amount;
+      }
     });
-    setRecapMonthYear('');
-    setRecapIncome('');
-    setRecapExpense('');
-    setRecapSavings('');
-    setRecapInvestment('');
-    setIsAddingRecap(false);
+
+    return Object.values(groups).sort((a, b) => a.timestamp - b.timestamp);
   };
 
-  const handleAutoFillActiveData = () => {
-    const date = new Date();
-    const months = language === 'id' 
-      ? ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
-      : ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    setRecapMonthYear(`${months[date.getMonth()]} ${date.getFullYear()}`);
-    setRecapIncome(preferences.monthlyIncome.toString());
-    setRecapExpense(totalExpense.toString());
-    setRecapSavings(preferences.currentSavings.toString());
-    setRecapInvestment(preferences.monthlyInvestment.toString());
+  const trendData = getAggregatedTrendData();
+
+  // states and fetcher for real-time AI Cash Flow report
+  const [isCashflowReportLoading, setIsCashflowReportLoading] = useState(false);
+  const [cashflowReport, setCashflowReport] = useState<{
+    summary: string;
+    leakSource: string;
+    ratioAnalysis: string;
+    actions: string[];
+  } | null>(() => {
+    const saved = localStorage.getItem('aura_cashflow_ai_report');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return null;
+  });
+  const [cashflowReportError, setCashflowReportError] = useState<string | null>(null);
+
+  const fetchCashflowAIReport = async () => {
+    setIsCashflowReportLoading(true);
+    setCashflowReportError(null);
+    try {
+      const response = await fetch('/api/gemini/analyze-cashflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          trendTimeframe,
+          trendData: trendData.slice(-15), // Avoid passing overly long arrays
+          preferences,
+          language,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(language === 'id' ? 'Gagal menghubungi Kecerdasan AI' : 'Failed to contact AI Engine');
+      }
+
+      const data = await response.json();
+      setCashflowReport(data);
+      localStorage.setItem('aura_cashflow_ai_report', JSON.stringify(data));
+    } catch (err: any) {
+      setCashflowReportError(err.message || 'System issues');
+    } finally {
+      setIsCashflowReportLoading(false);
+    }
   };
 
   const levelXP = 3450;
@@ -115,7 +297,34 @@ export default function DashboardView({
     );
 
   const handleQuestCompletion = (id: string) => {
-    setActiveQuests(prev => prev.map(q => q.id === id ? { ...q, status: 'completed' } : q));
+    onCompleteQuest(id);
+  };
+
+  const handleResolveQuestClick = (quest: any) => {
+    if (quest.status === 'completed') return;
+
+    // Set quest as currently in-progress
+    setActiveQuestInProgressId(quest.id);
+
+    if (quest.id === 'quest-1') {
+      alert(language === 'id' 
+        ? "Misi Aktif Dimulai! Silakan hapus atau pangkas kebocoran langganan Anda di halaman Cashflow Command Center (Tab: Data Keseluruhan / Sub-nav: Input Langganan) untuk menyelesaikan misi ini."
+        : "Active Mission Started! Go to Cashflow Command Center (Tab: Overall Data / Sub-nav: Subscription Inputs) and delete/prune any unused subscriptions to complete your mission."
+      );
+      onNavigateToTab('fcc');
+    } else if (quest.id === 'quest-2') {
+      alert(language === 'id' 
+        ? "Misi Aktif Dimulai! Anda diarahkan ke halaman Scam Sentinel. Silakan lakukan audit kelayakan penipuan pada investasi mencurigakan apa saja di sana untuk menyelesaikan misi."
+        : "Active Mission Started! Redirecting you to Scam Sentinel. Analyze any suspect high-yield opportunity to audit fraud and claim reward."
+      );
+      onNavigateToTab('scam');
+    } else if (quest.id === 'quest-3') {
+      alert(language === 'id' 
+        ? "Misi Aktif Dimulai! Anda diarahkan ke Future Simulator. Silakan sesuaikan target pensiun atau kekayaan dan klik 'Trajectory Projection Simulation' untuk menyelesaikan misi."
+        : "Active Mission Started! Redirecting you to the Future Simulator. Adjust your target metrics and click 'Project Future Horizons' to fulfill this quest."
+      );
+      onNavigateToTab('simulator');
+    }
   };
 
   const handleSavePreferences = (e: React.FormEvent) => {
@@ -145,295 +354,153 @@ export default function DashboardView({
     setIsAddingGoal(false);
   };
 
-  const handleExplainAsset = async () => {
-    if (!tickerSearch.trim() || isLoadingTicker) return;
-    setIsLoadingTicker(true);
-    setTickerReport(null);
-    try {
-      const response = await fetch('/api/gemini/explain-investment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assetName: tickerSearch,
-          riskAppetite: preferences.riskAppetite
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Explainer lost sync with intelligence network');
-      }
-
-      const data: InvestmentExplanation = await response.json();
-      setTickerReport(data);
-    } catch (err: any) {
-      console.error(err);
-      // Graceful local translation fallback for asset audit
-      if (language === 'id') {
-        setTickerReport({
-          assetClass: "Ekuitas Indeks Diversifikasi",
-          explanationPlainEnglish: `Indeks pelacak portofolio terbuka yang mengikuti pergerakan perusahaan-perusahaan berkapitalisasi besar. Sangat stabil untuk pemupukan akumulasi dana majemuk jangka panjang (10-30 tahun).`,
-          riskRewardProfile: "Fluktuasi pasar saham sedang. Sedikit terdampak penurunan ekonomi jangka pendek, namun menghasilkan imbal hasil jauh melampaui tabungan biasa.",
-          targetAllocationPercentage: 35,
-          historicalVolatilityLabel: "Sedang",
-          pros: ["Keamanan indeks terdistribusi", "Penyeimbangan otomatis berkala"],
-          cons: ["Dipengaruhi kontraksi inflasi makro"],
-          suitabilityDecision: `Cocok untuk profil risiko Anda (${preferences.riskAppetite.toUpperCase()}). Disarankan alokasi 35% dari surplus kas.`
-        });
-      } else {
-        setTickerReport({
-          assetClass: "Diversified Equities Pool",
-          explanationPlainEnglish: `Standard compilation tracks public indices containing major corporate holdings. Highly robust for individuals accumulating passive returns over 10-30 years continuously.`,
-          riskRewardProfile: "Balanced stock fluctuations. Vulnerable to general bear pullbacks but builds substantial interest compared to liquid retail savings.",
-          targetAllocationPercentage: 35,
-          historicalVolatilityLabel: "Moderate",
-          pros: ["Broad index safety", "Automatic quarterly rebalancing"],
-          cons: ["Vulnerable to rapid inflation contractions"],
-          suitabilityDecision: `Matches your current profile (${preferences.riskAppetite.toUpperCase()}) perfectly. Suggested allocation is 35% of surplus.`
-        });
-      }
-    } finally {
-      setIsLoadingTicker(false);
-    }
-  };
-
   const totalExpense = transactions
     .filter(t => t.type === 'expense')
     .reduce((sum, current) => sum + current.amount, 0);
 
   return (
-    <div id="dash_view_root" className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+    <div id="dash_view_root" className="grid grid-cols-1 xl:grid-cols-12 gap-6" ref={componentRef}>
       
+      {/* Header section with Export controls */}
+      <div className="xl:col-span-12 flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-[#0a0a0a]/50 border border-white/5 p-4.5 rounded-2xl">
+        <div>
+          <h2 className="text-xl font-bold text-white tracking-tight">HUD Dashboard</h2>
+          <p className="text-xs text-zinc-400 mt-0.5 font-sans">
+            {language === 'id' 
+              ? 'Selamat datang di pusat pemantauan finansial terintegrasi Anda.' 
+              : 'Welcome to your integrated personal financial telemetry center.'}
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <button 
+              onClick={() => setIsExportOpen(!isExportOpen)}
+              className="flex items-center gap-2 text-xs font-mono uppercase bg-zinc-900 hover:bg-zinc-800 text-zinc-300 px-3.5 py-2 rounded-lg border border-white/5 transition cursor-pointer select-none"
+            >
+              <Download className="w-4 h-4" /> {language === 'id' ? 'Ekspor' : 'Export'}
+            </button>
+            {isExportOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsExportOpen(false)} />
+                <div className="absolute right-0 mt-2 w-52 rounded-xl border border-white/10 bg-zinc-950 p-1.5 shadow-2xl z-50 flex flex-col gap-0.5">
+                  <div className="px-2 py-1 text-[9px] font-mono text-zinc-500 uppercase tracking-widest border-b border-white/5 mb-1">
+                    {language === 'id' ? 'FORMAT FILES' : 'SELECT FORMAT'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { exportToPDF(); setIsExportOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-zinc-300 hover:text-white rounded-lg text-xs transition font-semibold"
+                  >
+                    📄 Download PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { exportToCSV('transactions'); setIsExportOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-zinc-300 hover:text-white rounded-lg text-xs transition font-semibold"
+                  >
+                    📊 CSV (Transactions)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { exportToCSV('assets'); setIsExportOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-zinc-300 hover:text-white rounded-lg text-xs transition font-semibold"
+                  >
+                    📈 CSV (Assets)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { exportToJSON(); setIsExportOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-zinc-900 text-zinc-300 hover:text-white rounded-lg text-xs transition font-semibold"
+                  >
+                    ⚙️ JSON (All Data)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <span className="text-[10px] font-mono text-zinc-550 bg-zinc-950 p-1.5 px-3 border border-white/5 rounded-md uppercase tracking-wider hidden sm:inline-block">
+            {language === 'id' ? 'SISTEM DIPANTAU • NYALA' : 'SECURE HUD NODE • ACTIVE'}
+          </span>
+        </div>
+      </div>
+
       {/* HUD left core variables column */}
       <div className="xl:col-span-8 space-y-6">
-        
-        {/* Monthly Data Recapitulation Ledger */}
-        <div id="monthly_recaps_ledger" className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-md space-y-4 font-sans">
-          <div className="flex justify-between items-center font-mono">
-            <div>
-              <h4 className="font-bold text-white text-xs uppercase tracking-wider">
-                {language === 'id' ? 'REKAPITULASI DATA BULANAN' : 'MONTHLY FINANCIAL RECAPS'}
-              </h4>
-              <span className="text-[10px] text-zinc-500">
-                {language === 'id' ? 'Simpan rekaman agregat bulanan & pasangkan sebagai input dasar' : 'Archive monthly summaries & recall them as your active workspace inputs'}
-              </span>
-            </div>
-            <button
-              id="add_recap_toggle_btn"
-              onClick={() => {
-                setIsAddingRecap(!isAddingRecap);
-                if (!isAddingRecap) {
-                  handleAutoFillActiveData();
-                }
-              }}
-              className="py-1 px-3 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-mono flex items-center gap-1 hover:bg-indigo-500/30 transition-all cursor-pointer"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>{isAddingRecap ? (language === 'id' ? 'Tutup' : 'Close') : (language === 'id' ? '+ Tambah Rekap' : '+ Add Recap')}</span>
-            </button>
-          </div>
 
-          {/* New Recap submission form */}
-          {isAddingRecap && (
-            <form onSubmit={handleCreateRecap} className="p-4 bg-zinc-950 border border-white/10 rounded-xl space-y-3.5 text-xs animate-fade-in">
-              <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                <h5 className="font-bold text-white text-xs uppercase tracking-wider font-mono">
-                  {language === 'id' ? 'Simpan Catatan Baru' : 'Record New Monthly Summary'}
-                </h5>
-                <button
-                  type="button"
-                  onClick={handleAutoFillActiveData}
-                  className="px-2 py-1 bg-zinc-900 hover:bg-zinc-850 border border-white/5 rounded text-[10px] text-zinc-400 font-mono transition"
-                >
-                  {language === 'id' ? 'Ambil Data Aktif Saat Ini' : 'Snapshot Current Active Data'}
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Bulan & Tahun' : 'Month & Year'}</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Mei 2026"
-                    value={recapMonthYear}
-                    onChange={e => setRecapMonthYear(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Pemasukan' : 'Income'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapIncome}
-                    onChange={e => setRecapIncome(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Pengeluaran' : 'Expenses'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapExpense}
-                    onChange={e => setRecapExpense(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Tabungan Akhir' : 'Final Savings'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapSavings}
-                    onChange={e => setRecapSavings(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Alokasi Investasi' : 'Invest Rate'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapInvestment}
-                    onChange={e => setRecapInvestment(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold p-2.5 rounded-lg transition text-xs font-mono"
-              >
-                {language === 'id' ? 'SIMPAN REKAPITULASI DATA' : 'STORE MONTHLY RECAP DATA'}
-              </button>
-            </form>
-          )}
-
-          {/* List of saved recaps */}
-          {monthlyRecaps.length === 0 ? (
-            <div className="text-center p-6 bg-zinc-950/30 border border-dashed border-white/5 text-zinc-500 rounded-xl text-xs">
-              {language === 'id' 
-                ? 'Belum ada data rekapitulasi bulanan tersimpan. Klik "+ Tambah Rekap" di atas untuk mulai menginput.' 
-                : 'No historical monthly summaries recorded yet. Fill a sheet or snapshot current stats to start.'}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {monthlyRecaps.map(recap => (
-                <div key={recap.id} className="p-4 bg-zinc-950/50 rounded-xl border border-white/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition hover:border-white/15">
-                  <div className="space-y-1">
-                    <span className="text-teal-400 font-bold font-mono text-sm block">
-                      {recap.monthYear}
-                    </span>
-                    <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-[10px] font-mono text-zinc-400">
-                      <div>
-                        {language === 'id' ? 'Pemasukan:' : 'Income:'}{" "}
-                        <strong className="text-white">{preferences.currency}{recap.monthlyIncome.toLocaleString()}</strong>
-                      </div>
-                      <div>
-                        {language === 'id' ? 'Pengeluaran:' : 'Spend:'}{" "}
-                        <strong className="text-rose-400">-{preferences.currency}{recap.monthlyExpense.toLocaleString()}</strong>
-                      </div>
-                      <div>
-                        {language === 'id' ? 'Tabungan:' : 'Savings:'}{" "}
-                        <strong className="text-teal-400">{preferences.currency}{recap.currentSavings.toLocaleString()}</strong>
-                      </div>
-                      <div>
-                        {language === 'id' ? 'Investasi:' : 'Invested:'}{" "}
-                        <strong className="text-indigo-400">{preferences.currency}{recap.monthlyInvestment.toLocaleString()}</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-end sm:self-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onApplyMonthlyRecap(recap);
-                        alert(language === 'id' 
-                          ? `Data untuk ${recap.monthYear} berhasil diterapkan ke dashboard aktif!`
-                          : `Successfully applied ${recap.monthYear} metrics as active dashboard parameters!`
-                        );
-                      }}
-                      className="py-1.5 px-3 bg-teal-950 text-teal-300 border border-teal-900 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 hover:bg-teal-900 hover:text-white transition duration-150 cursor-pointer"
-                      title={language === 'id' ? 'Terapkan data bulanan ke dashboard' : 'Apply monthly data to dashboard'}
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>{language === 'id' ? 'Gunakan Data Ini' : 'Load Data'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteMonthlyRecap(recap.id)}
-                      className="p-1.5 bg-rose-950/30 border border-rose-900/30 text-rose-400 hover:bg-rose-900 transition-all rounded-lg cursor-pointer animate-fade-in"
-                      title={t.deleteBtn}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Futuristic Dashboard Header cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 select-none">
           
-          <div className="bg-gradient-to-br from-zinc-900/60 to-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-lg flex flex-col justify-between relative">
-            <div className="absolute -right-10 -top-10 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl"></div>
+          {/* CARD 1: Total Nilai Aset */}
+          <div className="bg-gradient-to-br from-zinc-900/60 to-[#0a0a0a] p-4.5 rounded-2xl border border-white/5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -right-6 -top-6 w-16 h-16 bg-teal-500/5 rounded-full blur-xl pointer-events-none"></div>
             <div>
-              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-1">
-                {t.selfSovereignAssets}
-                <HelpTooltip text={language === 'id' ? 'Semua tabungan dan aset likuid yang Anda miliki saat ini.' : 'Current sum of allあなたの personal liquid savings and asset holdings.'} />
+              <span className="text-[9px] font-mono text-zinc-550 uppercase tracking-widest block mb-1">
+                {language === 'id' ? 'TOTAL NILAI ASET' : 'TOTAL ASSETS VALUE'}
+                <HelpTooltip text={language === 'id' ? 'Akumulasi total semua kelas aset (kas, saham, emas, properti) yang Anda masukkan di ACC.' : 'The combined aggregate value of all cash holdings, stock funds, precious metals, and real estate registered in ACC.'} />
               </span>
-              <h3 className="text-2xl font-bold font-mono text-teal-400">
-                {preferences.currency}{preferences.currentSavings.toLocaleString()}
+              <h3 className="text-lg font-bold font-mono text-teal-400 select-text">
+                {preferences.currency}{(assets && assets.length > 0 ? assets.reduce((sum, a) => sum + a.value, 0) : 0).toLocaleString()}
               </h3>
             </div>
-            <div className="flex justify-between items-center text-[10px] text-zinc-400 pt-3 border-t border-white/5 mt-4">
-              <span>{t.primaryCompoundPool}</span>
-              <span className="text-emerald-400 font-bold font-mono">{t.annualReturn}</span>
+            <div className="flex justify-between items-center text-[9px] text-zinc-500 pt-2 border-t border-white/5 mt-3">
+              <span>{language === 'id' ? 'Aset Terdaftar' : 'Holdings'}</span>
+              <span className="text-teal-400/90 font-mono font-bold">ACC ACTIVE</span>
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-zinc-900/60 to-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-lg flex flex-col justify-between relative">
-            <div className="absolute -right-10 -top-10 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl"></div>
+          {/* CARD 2: Total Portofolio Investasi */}
+          <div className="bg-gradient-to-br from-zinc-900/60 to-[#0a0a0a] p-4.5 rounded-2xl border border-white/5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -right-6 -top-6 w-16 h-16 bg-indigo-500/5 rounded-full blur-xl pointer-events-none"></div>
             <div>
-              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-1">
-                {t.monthlyCompoundContribution}
-                <HelpTooltip text={language === 'id' ? 'Dana yang dialokasikan untuk target investasi bulanan Anda.' : 'Monthly funds committed toward your strategic investment goals.'} />
+              <span className="text-[9px] font-mono text-zinc-550 uppercase tracking-widest block mb-1">
+                {language === 'id' ? 'TOTAL INVESTASI AKTIF' : 'ACTIVE INVESTMENT VALUE'}
+                <HelpTooltip text={language === 'id' ? 'Estimasi total nilai aset Anda di luar porsi kas (di luar kategori cash).' : 'Total cumulative valuation of non-cash compounding holdings.'} />
               </span>
-              <h3 className="text-2xl font-bold font-mono text-indigo-400">
+              <h3 className="text-lg font-bold font-mono text-indigo-400 select-text">
+                {preferences.currency}{(assets && assets.length > 0 ? assets.filter(a => a.category !== 'cash').reduce((sum, a) => sum + a.value, 0) : 0).toLocaleString()}
+              </h3>
+            </div>
+            <div className="flex justify-between items-center text-[9px] text-zinc-500 pt-2 border-t border-white/5 mt-3">
+              <span>{language === 'id' ? 'Rasio Compounding' : 'Yield Ratio'}</span>
+              <span className="text-indigo-400 font-bold font-mono">
+                {assets && assets.length > 0
+                  ? Math.round((assets.filter(a => a.category !== 'cash').reduce((sum, a) => sum + a.value, 0) / Math.max(1, assets.reduce((sum, a) => sum + a.value, 0))) * 100)
+                  : 0}%
+              </span>
+            </div>
+          </div>
+
+          {/* CARD 3: Target Alokasi Bulanan */}
+          <div className="bg-gradient-to-br from-zinc-900/60 to-[#0a0a0a] p-4.5 rounded-2xl border border-white/5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -right-6 -top-6 w-16 h-16 bg-yellow-500/5 rounded-full blur-xl pointer-events-none"></div>
+            <div>
+              <span className="text-[9px] font-mono text-zinc-550 uppercase tracking-widest block mb-1">
+                {t.monthlyCompoundContribution}
+                <HelpTooltip text={language === 'id' ? 'Dana segar reguler yang ditargetkan masuk tabungan & pasar modal bulan ini.' : 'Monthly funds committed toward your strategic investment goals.'} />
+              </span>
+              <h3 className="text-lg font-bold font-mono text-yellow-400 select-text">
                 {preferences.currency}{preferences.monthlyInvestment.toLocaleString()}
               </h3>
             </div>
-            <div className="flex justify-between items-center text-[10px] text-zinc-400 pt-3 border-t border-white/5 mt-4">
+            <div className="flex justify-between items-center text-[9px] text-zinc-500 pt-2 border-t border-white/5 mt-3">
               <span>{t.surplusTargetAllocation}</span>
-              <span className="text-indigo-400 font-bold font-mono">{t.activeTarget}</span>
+              <span className="text-yellow-400 font-bold font-mono">{t.activeTarget}</span>
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-zinc-900/60 to-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-lg flex flex-col justify-between relative">
-            <div className="absolute -right-10 -top-10 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl"></div>
+          {/* CARD 4: Margin Arus Kas Bulanan */}
+          <div className="bg-gradient-to-br from-zinc-900/60 to-[#0a0a0a] p-4.5 rounded-2xl border border-white/5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -right-6 -top-6 w-16 h-16 bg-rose-500/5 rounded-full blur-xl pointer-events-none"></div>
             <div>
-              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-1">
+              <span className="text-[9px] font-mono text-zinc-550 uppercase tracking-widest block mb-1">
                 {t.monthlyCashMargin}
-                <HelpTooltip text={`${language === 'id' ? 'Pemasukan - Pengeluaran. Surplus untuk tabungan/investasi. ' : 'Income - Expenses. The remaining surplus designated for savings/invest. '} (Calc: ${preferences.currency}${preferences.monthlyIncome.toLocaleString()} - ${preferences.currency}${totalExpense.toLocaleString()})`} />
+                <HelpTooltip text={`${language === 'id' ? 'Sisa surplus kas bulan berjalan (Pemasukan - Total Pengeluaran).' : 'Income - Expenses. The remaining cash buffer for security or savings.'} (Calc: ${preferences.currency}${preferences.monthlyIncome.toLocaleString()} - ${preferences.currency}${totalExpense.toLocaleString()})`} />
               </span>
-              <h3 className="text-2xl font-bold font-mono text-rose-400">
+              <h3 className="text-lg font-bold font-mono text-rose-400 select-text font-semibold">
                 {preferences.currency}{(preferences.monthlyIncome - totalExpense).toLocaleString()}
               </h3>
             </div>
-            <div className="flex justify-between items-center text-[10px] text-zinc-400 pt-3 border-t border-white/5 mt-4">
+            <div className="flex justify-between items-center text-[9px] text-zinc-500 pt-2 border-t border-white/5 mt-3">
               <span>{t.expensesTrackedBuffer}</span>
               <span className="text-rose-400 font-bold font-mono">{t.activeTracking}</span>
             </div>
@@ -441,85 +508,273 @@ export default function DashboardView({
 
         </div>
 
-        {/* Adjust wealth variables inline */}
-        <div className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/10 shadow-lg">
-          <div className="flex justify-between items-center">
+        {/* Monthly Trend Chart */}
+        <div id="monthly_recaps_chart" className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-md space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-3">
             <div>
-              <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-                {language === 'id' ? 'KONFIGURASI DATA SAYA' : 'MY FINANCIAL INPUT DESK'}
+              <h4 className="font-bold text-white text-xs uppercase tracking-wider font-mono">
+                {language === 'id' ? 'ANALISIS TREN ALIRAN DANA' : 'CASH FLOW TREND ANALYSIS'}
               </h4>
-              <p className="text-[10px] text-zinc-500 mt-1">
-                {language === 'id' ? 'Sesuaikan jumlah tabungan Anda sendiri untuk simulasi akurat' : 'Customize values safely. No dummy defaults, input your actual liquid balance.'}
+              <p className="text-[10px] text-zinc-500 font-sans mt-0.5">
+                {language === 'id' 
+                  ? 'Visualisasi kumulatif pemasukan vs pengeluaran dari data transaksi rinci.'
+                  : 'Cumulative visualization of detailed inflows vs outflows gathered from active logs.'}
               </p>
             </div>
-            <button
-              id="toggle_preferences_edit"
-              onClick={() => {
-                setEditSavings(preferences.currentSavings.toString());
-                setEditIncome(preferences.monthlyIncome.toString());
-                setEditInvestment(preferences.monthlyInvestment.toString());
-                setEditRisk(preferences.riskAppetite);
-                setIsEditingPreferences(!isEditingPreferences);
-              }}
-              className="py-1 px-3 bg-indigo-950 text-indigo-300 border border-indigo-900 rounded-lg text-xs font-mono hover:bg-indigo-900 transition-all cursor-pointer"
-            >
-              {isEditingPreferences ? (language === 'id' ? 'Batal' : 'Cancel') : (language === 'id' ? 'Ubah Data' : 'Adjust Data')}
-            </button>
+
+            {/* Timeframe Selector Buttons */}
+            <div className="flex bg-zinc-950 p-1 rounded-lg border border-white/5 gap-1 self-start sm:self-center">
+              {(['harian', 'mingguan', 'bulanan', 'tahunan'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  onClick={() => setTrendTimeframe(tf)}
+                  className={`px-2.5 py-1 rounded text-[10px] uppercase font-mono transition font-bold select-none cursor-pointer ${
+                    trendTimeframe === tf 
+                      ? 'bg-indigo-600 text-white shadow' 
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {tf === 'harian' ? (language === 'id' ? 'Harian' : 'Daily') :
+                   tf === 'mingguan' ? (language === 'id' ? 'Mingguan' : 'Weekly') :
+                   tf === 'bulanan' ? (language === 'id' ? 'Bulanan' : 'Monthly') :
+                   (language === 'id' ? 'Tahunan' : 'Yearly')}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {isEditingPreferences && (
-            <form onSubmit={handleSavePreferences} className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-white/5 animate-fade-in text-xs">
-              <div className="space-y-1">
-                <label className="text-zinc-400 text-[10px] uppercase font-mono">{t.savedToDate}</label>
-                <input
-                  type="number"
-                  value={editSavings}
-                  onChange={e => setEditSavings(e.target.value)}
-                  className="w-full bg-zinc-950 border border-white/10 rounded-lg p-2 text-white"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Pemasukan Bulanan' : 'Monthly Income'}</label>
-                <input
-                  type="number"
-                  value={editIncome}
-                  onChange={e => setEditIncome(e.target.value)}
-                  className="w-full bg-zinc-950 border border-white/10 rounded-lg p-2 text-white"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Investasi Bulanan' : 'Monthly Invest'}</label>
-                <input
-                  type="number"
-                  value={editInvestment}
-                  onChange={e => setEditInvestment(e.target.value)}
-                  className="w-full bg-zinc-950 border border-white/10 rounded-lg p-2 text-white"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-zinc-400 text-[10px] uppercase font-mono">{t.strategicRiskProfile}</label>
-                <select
-                  value={editRisk}
-                  onChange={e => setEditRisk(e.target.value as any)}
-                  className="w-full bg-zinc-950 border border-white/10 rounded-lg p-2 text-white"
-                >
-                  <option value="conservative">Conservative</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="aggressive">Aggressive</option>
-                </select>
+          {trendData.length === 0 ? (
+            <div className="h-[200px] flex items-center justify-center border border-dashed border-white/5 rounded-xl text-xs text-zinc-650 font-sans">
+              {language === 'id' 
+                ? 'Belum ada data untuk memetakan visualisasi tren aliran dana.' 
+                : 'No transaction data available to plot visualization trends.'}
+            </div>
+          ) : (
+            <div className="h-[200px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendData}>
+                  <defs>
+                    <linearGradient id="colorIncomeDash" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorExpenseDash" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
+                  <XAxis dataKey="label" stroke="#666" fontSize={10} tickLine={false} />
+                  <YAxis stroke="#666" fontSize={10} tickFormatter={(val) => `${preferences.currency}${val.toLocaleString()}`} tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '12px' }} 
+                    formatter={(value) => [`${preferences.currency}${Number(value).toLocaleString()}`]}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="monthlyIncome" 
+                    stroke="#10b981" 
+                    fill="url(#colorIncomeDash)" 
+                    strokeWidth={2}
+                    name={language === 'id' ? 'Pemasukan' : 'Income'} 
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="monthlyExpense" 
+                    stroke="#ef4444" 
+                    fill="url(#colorExpenseDash)" 
+                    strokeWidth={2}
+                    name={language === 'id' ? 'Pengeluaran' : 'Expense'} 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* AI Generated Trend Diagnostics Report */}
+          <div className="mt-5 pt-5 border-t border-white/5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-400 animate-pulse" />
+                <span className="text-xs font-extrabold tracking-wider uppercase text-zinc-300">
+                  {language === 'id' ? 'Laporan Tren Keuangan AI' : 'AI Trend Analytics Report'}
+                </span>
               </div>
               <button
-                type="submit"
-                className="col-span-2 sm:col-span-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold p-2.5 rounded-lg transition"
+                type="button"
+                onClick={fetchCashflowAIReport}
+                disabled={isCashflowReportLoading || trendData.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-500/20 to-cyan-500/20 hover:from-indigo-500/30 hover:to-cyan-500/30 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-lg text-xs font-semibold cursor-pointer select-none transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {language === 'id' ? 'Terapkan Perubahan' : 'Apply Financial Snapshot'}
+                {isCashflowReportLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>{language === 'id' ? 'Menganalisis...' : 'Analyzing...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3 h-3" />
+                    <span>{cashflowReport ? (language === 'id' ? 'Hitung Ulang' : 'Recalculate') : (language === 'id' ? 'Generate Diagnostik' : 'Generate Diagnostics')}</span>
+                  </>
+                )}
               </button>
-            </form>
-          )}
+            </div>
+
+            {cashflowReportError && (
+              <div className="p-3 bg-red-950/20 border border-red-500/20 text-red-400 rounded-xl text-xs flex gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{cashflowReportError}</span>
+              </div>
+            )}
+
+            {isCashflowReportLoading && !cashflowReport && (
+              <div className="p-5 border border-white/5 rounded-xl bg-zinc-950/40 text-center space-y-2">
+                <Loader2 className="w-5 h-5 text-indigo-400 animate-spin mx-auto" />
+                <p className="text-xs text-zinc-400 font-sans">
+                  {language === 'id' 
+                    ? 'Memasukkan model kecerdasan dan mengevaluasi tren pengeluaran Anda...' 
+                    : 'Engaging economic intelligence model and auditing trend sheets...'}
+                </p>
+              </div>
+            )}
+
+            {!isCashflowReportLoading && !cashflowReport && !cashflowReportError && (
+              <div className="p-4 border border-zinc-805 border-white/5 rounded-xl bg-[#09090b]/40 text-center">
+                <p className="text-xs text-zinc-500">
+                  {language === 'id' 
+                    ? 'Klik "Generate Diagnostik" untuk memicu audit aliran kas dooitly bertenaga AI.' 
+                    : 'Click "Generate Diagnostics" to spark dooitly AI cash flow audit for this trend chart.'}
+                </p>
+              </div>
+            )}
+
+            {cashflowReport && (
+              <div className={`space-y-3 animate-fade-in ${isCashflowReportLoading ? 'opacity-40' : ''}`}>
+                <div className="bg-[#09090b]/80 border border-white/5 p-4 rounded-xl space-y-3 font-sans">
+                  
+                  {/* Summary text */}
+                  <div>
+                    <span className="text-[10px] font-mono font-bold uppercase text-indigo-400 tracking-wider">
+                      {language === 'id' ? '■ ANALISIS UTAMA' : '■ CORE SYNTHESIS'}
+                    </span>
+                    <p className="text-xs text-zinc-300 mt-1 leading-relaxed">
+                      {cashflowReport.summary}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* Leaks analysis */}
+                    <div className="bg-zinc-950/40 p-3 rounded-lg border border-white/5">
+                      <span className="text-[9px] font-mono uppercase text-[#eab308] tracking-wider block">
+                        {language === 'id' ? '⚠️ PENYEBAB KEBOCORAN' : '⚠️ LEAK EVALUATION'}
+                      </span>
+                      <p className="text-xs text-zinc-400 mt-1">
+                        {cashflowReport.leakSource}
+                      </p>
+                    </div>
+
+                    {/* Ratio analysis */}
+                    <div className="bg-zinc-950/40 p-3 rounded-lg border border-white/5">
+                      <span className="text-[9px] font-mono uppercase text-[#14b8a6] tracking-wider block">
+                        {language === 'id' ? '📊 ANALISIS RASIO' : '📊 RATIO ANALYSIS'}
+                      </span>
+                      <p className="text-xs text-zinc-400 mt-1">
+                        {cashflowReport.ratioAnalysis}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Action Steps */}
+                  <div>
+                    <span className="text-[10px] font-mono font-bold uppercase text-[#10b981] tracking-wider">
+                      {language === 'id' ? '⚡ 3 REKOMENDASI TINDAKAN' : '⚡ 3 ACTION STEPS'}
+                    </span>
+                    <ul className="mt-2 space-y-1.5 rounded-lg bg-emerald-500/5 p-3 border border-emerald-500/10">
+                      {cashflowReport.actions?.map((act: string, idx: number) => (
+                        <li key={idx} className="text-xs text-zinc-300 flex items-start gap-2">
+                          <span className="text-emerald-400 font-bold shrink-0">{idx + 1}.</span>
+                          <span>{act}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* Portfolio Analysis & Growth Chart Container */}
+        {assets.length > 0 && (
+          <div className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-md space-y-6">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-bold">
+                {language === 'id' ? 'ANALISIS PORTOFOLIO & PERTUMBUHAN' : 'PORTFOLIO ANALYTICS & GROWTH'}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Donut Chart */}
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={assets.reduce((acc: any[], asset) => {
+                        const existing = acc.find(item => item.name === asset.category);
+                        if (existing) { existing.value += asset.value; }
+                        else { acc.push({ name: asset.category, value: asset.value }); }
+                        return acc;
+                      }, [])}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={70}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {assets.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={['#14b8a6', '#6366f1', '#06b6d4', '#f59e0b', '#eab308', '#71717a'][index % 6]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: number) => `${preferences.currency}${value.toLocaleString()}`}
+                      contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '12px', fontSize: '12px' }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '10px' }} iconSize={8} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Growth Line Chart */}
+              <div className="h-48 border-l border-white/5 pl-6">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={Array.from({ length: 21 }, (_, i) => i).map(year => ({
+                    year,
+                    value: assets.reduce((sum, asset) => {
+                      return sum + (asset.value * Math.pow(1 + (asset.expectedReturn / 100), year));
+                    }, 0)
+                  }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis dataKey="year" stroke="#71717a" fontSize={10} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#71717a" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${preferences.currency}${val.toLocaleString(undefined, {notation: 'compact'})}`} />
+                    <Tooltip 
+                      formatter={(value: number) => [`${preferences.currency}${Math.round(value).toLocaleString()}`, 'Value']}
+                      contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '12px', fontSize: '12px' }}
+                    />
+                    <Line type="monotone" dataKey="value" stroke="#818cf8" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+
+
         {/* Level & XP RPG Gamified UI Bar */}
-        <div id="gamified_xp_bar" className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-lg space-y-3">
+        <div id="gamified_xp_bar" className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-lg space-y-3 mt-6">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
               <Award className="w-5 h-5 text-yellow-400" />
@@ -541,388 +796,8 @@ export default function DashboardView({
           </div>
         </div>
 
-        {/* Interactive Asset Explanation Ticker Search Desk */}
-        <div id="ticker_explainer_desk" className="bg-zinc-900/40 backdrop-blur-md p-6 rounded-2xl border border-white/5 shadow-md space-y-4">
-          <div>
-            <h4 className="font-bold text-white text-sm flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-indigo-400" /> {t.assetExplainerTitle}
-            </h4>
-            <p className="text-xs text-zinc-500 mt-1">{t.assetExplainerDesc}</p>
-          </div>
-          <div className="flex gap-2">
-            <input 
-              id="asset_search_input"
-              type="text"
-              value={tickerSearch}
-              onChange={(e) => setTickerSearch(e.target.value)}
-              placeholder={t.assetExplainerPlaceholder}
-              className="flex-1 bg-zinc-950 border border-white/10 text-white text-xs rounded-lg px-3.5 py-2.5 focus:outline-none focus:border-indigo-500 placeholder-zinc-650"
-            />
-            <button 
-              id="asset_explain_btn"
-              onClick={handleExplainAsset}
-              disabled={!tickerSearch.trim() || isLoadingTicker}
-              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-medium px-5 py-2.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              {isLoadingTicker ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>{t.explaining}</span>
-                </>
-              ) : (
-                <>
-                  <Search className="w-3.5 h-3.5" />
-                  <span>{t.explainBtn}</span>
-                </>
-              )}
-            </button>
-          </div>
 
-          {/* Asset Explanation Report */}
-          {tickerReport && (
-            <div id="ticker_diagnostic_card" className="p-5 bg-black/40 rounded-xl border border-white/5 space-y-4 animate-fade-in">
-              <div className="flex justify-between items-start border-b border-white/5 pb-3">
-                <div>
-                  <h5 className="font-bold text-xs font-mono uppercase text-teal-400">{tickerSearch}</h5>
-                  <span className="text-[10px] text-zinc-500">{language === 'id' ? 'Kelas Aset:' : 'Asset Class:'} <strong className="text-white font-medium">{tickerReport.assetClass}</strong></span>
-                </div>
-                <div className="bg-zinc-900 border border-white/5 px-2.5 py-1 rounded text-right">
-                  <span className="text-[9px] text-zinc-500 block uppercase font-mono">{language === 'id' ? 'Usulan Alokasi' : 'Suggested Pool'}</span>
-                  <span className="text-xs text-teal-400 font-bold font-mono">{tickerReport.targetAllocationPercentage}%</span>
-                </div>
-              </div>
-              <p className="text-xs text-zinc-300 leading-relaxed font-sans">{tickerReport.explanationPlainEnglish}</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] font-sans">
-                <div className="p-3 bg-emerald-950/10 border border-emerald-900/20 rounded-lg">
-                  <span className="text-[9px] font-mono text-emerald-400 uppercase tracking-wider block font-bold mb-1.5">{language === 'id' ? 'Keunggulan' : 'Advantages'}</span>
-                  <ul className="list-disc pl-4 space-y-1 text-zinc-300">
-                    {tickerReport.pros.map((p, i) => <li key={i}>{p}</li>)}
-                  </ul>
-                </div>
-                <div className="p-3 bg-rose-950/10 border border-rose-900/20 rounded-lg">
-                  <span className="text-[9px] font-mono text-rose-400 uppercase tracking-wider block font-bold mb-1.5">{language === 'id' ? 'Risiko / Sisi Negatif' : 'Risks / Downsides'}</span>
-                  <ul className="list-disc pl-4 space-y-1 text-zinc-300">
-                    {tickerReport.cons.map((c, i) => <li key={i}>{c}</li>)}
-                  </ul>
-                </div>
-              </div>
 
-              <div className="text-[11px] text-zinc-500 p-2 border-t border-white/5 flex justify-between">
-                <span>Volatility: <strong className="text-zinc-300">{tickerReport.historicalVolatilityLabel}</strong></span>
-                <span className="text-indigo-400 font-semibold">{tickerReport.suitabilityDecision}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Monthly Data Recapitulation Ledger */}
-        <div id="monthly_recaps_ledger" className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-md space-y-4 font-sans">
-          <div className="flex justify-between items-center font-mono">
-            <div>
-              <h4 className="font-bold text-white text-xs uppercase tracking-wider">
-                {language === 'id' ? 'REKAPITULASI DATA BULANAN' : 'MONTHLY FINANCIAL RECAPS'}
-              </h4>
-              <span className="text-[10px] text-zinc-500">
-                {language === 'id' ? 'Simpan rekaman agregat bulanan & pasangkan sebagai input dasar' : 'Archive monthly summaries & recall them as your active workspace inputs'}
-              </span>
-            </div>
-            <button
-              id="add_recap_toggle_btn"
-              onClick={() => {
-                setIsAddingRecap(!isAddingRecap);
-                if (!isAddingRecap) {
-                  handleAutoFillActiveData();
-                }
-              }}
-              className="py-1 px-3 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-mono flex items-center gap-1 hover:bg-indigo-500/30 transition-all cursor-pointer"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>{isAddingRecap ? (language === 'id' ? 'Tutup' : 'Close') : (language === 'id' ? '+ Tambah Rekap' : '+ Add Recap')}</span>
-            </button>
-          </div>
-
-          {/* New Recap submission form */}
-          {isAddingRecap && (
-            <form onSubmit={handleCreateRecap} className="p-4 bg-zinc-950 border border-white/10 rounded-xl space-y-3.5 text-xs animate-fade-in">
-              <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                <h5 className="font-bold text-white text-xs uppercase tracking-wider font-mono">
-                  {language === 'id' ? 'Simpan Catatan Baru' : 'Record New Monthly Summary'}
-                </h5>
-                <button
-                  type="button"
-                  onClick={handleAutoFillActiveData}
-                  className="px-2 py-1 bg-zinc-900 hover:bg-zinc-850 border border-white/5 rounded text-[10px] text-zinc-400 font-mono transition"
-                >
-                  {language === 'id' ? 'Ambil Data Aktif Saat Ini' : 'Snapshot Current Active Data'}
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Bulan & Tahun' : 'Month & Year'}</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Mei 2026"
-                    value={recapMonthYear}
-                    onChange={e => setRecapMonthYear(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Pemasukan' : 'Income'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapIncome}
-                    onChange={e => setRecapIncome(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Pengeluaran' : 'Expenses'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapExpense}
-                    onChange={e => setRecapExpense(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Tabungan Akhir' : 'Final Savings'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapSavings}
-                    onChange={e => setRecapSavings(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{language === 'id' ? 'Alokasi Investasi' : 'Invest Rate'}</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="0"
-                    value={recapInvestment}
-                    onChange={e => setRecapInvestment(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold p-2.5 rounded-lg transition text-xs font-mono"
-              >
-                {language === 'id' ? 'SIMPAN REKAPITULASI DATA' : 'STORE MONTHLY RECAP DATA'}
-              </button>
-            </form>
-          )}
-
-          {/* List of saved recaps */}
-          {monthlyRecaps.length === 0 ? (
-            <div className="text-center p-6 bg-zinc-950/30 border border-dashed border-white/5 text-zinc-500 rounded-xl text-xs">
-              {language === 'id' 
-                ? 'Belum ada data rekapitulasi bulanan tersimpan. Klik "+ Tambah Rekap" di atas untuk mulai menginput.' 
-                : 'No historical monthly summaries recorded yet. Fill a sheet or snapshot current stats to start.'}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {monthlyRecaps.map(recap => (
-                <div key={recap.id} className="p-4 bg-zinc-950/50 rounded-xl border border-white/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition hover:border-white/15">
-                  <div className="space-y-1">
-                    <span className="text-teal-400 font-bold font-mono text-sm block">
-                      {recap.monthYear}
-                    </span>
-                    <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-[10px] font-mono text-zinc-400">
-                      <div>
-                        {language === 'id' ? 'Pemasukan:' : 'Income:'}{" "}
-                        <strong className="text-white">{preferences.currency}{recap.monthlyIncome.toLocaleString()}</strong>
-                      </div>
-                      <div>
-                        {language === 'id' ? 'Pengeluaran:' : 'Spend:'}{" "}
-                        <strong className="text-rose-400">-{preferences.currency}{recap.monthlyExpense.toLocaleString()}</strong>
-                      </div>
-                      <div>
-                        {language === 'id' ? 'Tabungan:' : 'Savings:'}{" "}
-                        <strong className="text-teal-400">{preferences.currency}{recap.currentSavings.toLocaleString()}</strong>
-                      </div>
-                      <div>
-                        {language === 'id' ? 'Investasi:' : 'Invested:'}{" "}
-                        <strong className="text-indigo-400">{preferences.currency}{recap.monthlyInvestment.toLocaleString()}</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-end sm:self-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onApplyMonthlyRecap(recap);
-                        alert(language === 'id' 
-                          ? `Data untuk ${recap.monthYear} berhasil diterapkan ke dashboard aktif!`
-                          : `Successfully applied ${recap.monthYear} metrics as active dashboard parameters!`
-                        );
-                      }}
-                      className="py-1.5 px-3 bg-teal-950 text-teal-300 border border-teal-900 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 hover:bg-teal-900 hover:text-white transition duration-150 cursor-pointer"
-                      title={language === 'id' ? 'Terapkan data bulanan ke dashboard' : 'Apply monthly data to dashboard'}
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>{language === 'id' ? 'Gunakan Data Ini' : 'Load Data'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteMonthlyRecap(recap.id)}
-                      className="p-1.5 bg-rose-950/30 border border-rose-900/30 text-rose-400 hover:bg-rose-900 transition-all rounded-lg cursor-pointer animate-fade-in"
-                      title={t.deleteBtn}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Goals / Targets Track Grid */}
-        <div className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-md space-y-4">
-          <div className="flex justify-between items-center font-mono">
-            <div>
-              <h4 className="font-bold text-white text-xs uppercase tracking-wider">{t.compoundedMultiMilestone}</h4>
-              <span className="text-[10px] text-zinc-650">{t.dynamicTargetCalibration}</span>
-            </div>
-            <button
-              id="add_goal_toggle_btn"
-              onClick={() => setIsAddingGoal(!isAddingGoal)}
-              className="py-1 px-3 bg-emerald-950 text-emerald-300 border border-emerald-900 rounded-lg text-xs font-mono flex items-center gap-1 hover:bg-emerald-900 transition-all cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>{isAddingGoal ? (language === 'id' ? 'Sembunyikan' : 'Hide Form') : (language === 'id' ? '+ Tambah Target' : '+ Add Goal')}</span>
-            </button>
-          </div>
-
-          {/* Goal creator form */}
-          {isAddingGoal && (
-            <form onSubmit={handleCreateGoal} className="p-4 bg-zinc-950 border border-white/10 rounded-xl space-y-3.5 text-xs animate-fade-in">
-              <h5 className="font-semibold text-white">{t.addGoalTitle}</h5>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{t.goalName}</label>
-                  <input
-                    type="text"
-                    required
-                    value={goalName}
-                    onChange={e => setGoalName(e.target.value)}
-                    placeholder="e.g. Dream Apartment Downpayment"
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{t.targetAmount} (USD/Rp)</label>
-                  <input
-                    type="number"
-                    required
-                    value={goalTargetAmount}
-                    onChange={e => setGoalTargetAmount(e.target.value)}
-                    placeholder="75000"
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{t.savedToDate}</label>
-                  <input
-                    type="number"
-                    value={goalCurrentSaved}
-                    onChange={e => setGoalCurrentSaved(e.target.value)}
-                    placeholder="15000"
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{t.targetYear}</label>
-                  <input
-                    type="number"
-                    value={goalTargetYear}
-                    onChange={e => setGoalTargetYear(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-zinc-400 text-[10px] uppercase font-mono">{t.categoryLabel}</label>
-                  <select
-                    value={goalCategory}
-                    onChange={e => setGoalCategory(e.target.value as any)}
-                    className="w-full bg-zinc-900 border border-white/10 rounded-lg p-2 text-white"
-                  >
-                    <option value="housing">Housing</option>
-                    <option value="retirement">Retirement</option>
-                    <option value="travel">Travel</option>
-                    <option value="investment">Investment/Savings</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-              </div>
-              <button
-                type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold p-2.5 rounded-lg transition"
-              >
-                {t.saveGoal}
-              </button>
-            </form>
-          )}
-
-          {goals.length === 0 ? (
-            <div className="text-center p-6 bg-zinc-950/30 border border-dashed border-white/5 text-zinc-500 rounded-xl text-xs">
-              {language === 'id' ? 'Belum ada target finansial. Klik "+ Tambah Target" di atas untuk menambahkan milik Anda !' : 'No financial goals yet. Keep your focus high by adding your actual personal goals above!'}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {goals.map(goal => {
-                const pct = Math.min(100, Math.round((goal.currentSaved / goal.targetAmount) * 100));
-                return (
-                  <div key={goal.id} className="p-4 bg-zinc-950/60 rounded-xl border border-white/5 space-y-3 relative group">
-                    <button
-                      id={`delete_goal_btn_${goal.id}`}
-                      onClick={() => onDeleteGoal(goal.id)}
-                      className="absolute top-2 right-2 p-1 bg-rose-950/35 border border-rose-900/30 text-rose-400 hover:bg-rose-900 transition-all rounded opacity-0 group-hover:opacity-100 cursor-pointer"
-                      title={t.deleteBtn}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                    <div>
-                      <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest">{goal.category} horizon</span>
-                      <h5 className="text-white text-xs font-semibold truncate mt-1">{goal.name}</h5>
-                    </div>
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-[10px] font-mono text-zinc-400">
-                        <span>{language === 'id' ? 'Ada:' : 'Have:'} {preferences.currency}{goal.currentSaved.toLocaleString()}</span>
-                        <span>{language === 'id' ? 'Target:' : 'Target:'} {preferences.currency}{goal.targetAmount.toLocaleString()}</span>
-                      </div>
-                      <div className="w-full h-1 bg-zinc-900 rounded-full overflow-hidden">
-                        <div style={{ width: `${pct}%` }} className="bg-teal-400 h-full rounded" />
-                      </div>
-                      <span className="text-[9px] font-mono text-teal-400 flex justify-between pt-1">
-                        <span>{pct}% {language === 'id' ? 'tercapai' : 'secured'}</span>
-                        <span>By {goal.targetYear}</span>
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
       </div>
 
@@ -942,37 +817,54 @@ export default function DashboardView({
           <p className="text-[11px] text-zinc-500">{t.questsDesc}</p>
           
           <div className="space-y-3">
-            {activeQuests.map(quest => (
-              <div key={quest.id} className="bg-zinc-950/60 p-4 rounded-xl border border-white/5 space-y-2 relative group overflow-hidden">
-                <div className="flex justify-between items-start gap-2">
-                  <div>
-                    <span className="text-[9px] font-mono text-indigo-400 uppercase tracking-widest">{quest.category} Mode</span>
-                    <h5 className="font-semibold text-xs text-white mt-1">{quest.title}</h5>
+            {questsList.map(quest => {
+              const isInProgress = activeQuestInProgressId === quest.id;
+              return (
+                <div 
+                  key={quest.id} 
+                  className={`bg-zinc-950/60 p-4 rounded-xl space-y-2 relative group overflow-hidden transition-all duration-200 border ${
+                    isInProgress ? 'border-amber-500/60 shadow-[0_0_15px_rgba(245,158,11,0.15)] bg-amber-950/5' : 'border-white/5'
+                  }`}
+                >
+                  {isInProgress && (
+                    <div className="absolute top-0 right-0 bg-amber-500 text-black text-[8px] font-mono font-black uppercase px-2 py-0.5 rounded-bl">
+                      {language === 'id' ? 'Sedang Berjalan' : 'In Progress'}
+                    </div>
+                  )}
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <span className="text-[9px] font-mono text-indigo-400 uppercase tracking-widest">{quest.category} Mode</span>
+                      <h5 className="font-semibold text-xs text-white mt-1">{quest.title}</h5>
+                    </div>
+                    <span className="text-[9px] font-mono text-yellow-400 uppercase font-bold bg-white/5 px-2 py-0.5 rounded border border-white/10">{quest.xpReward} XP</span>
                   </div>
-                  <span className="text-[9px] font-mono text-yellow-400 uppercase font-bold bg-white/5 px-2 py-0.5 rounded border border-white/10">{quest.xpReward} XP</span>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">{quest.description}</p>
+                  {quest.status === 'completed' ? (
+                    <div className="text-[10px] text-emerald-400 flex items-center gap-1.5 font-semibold bg-emerald-950/10 border border-emerald-900/30 p-2 rounded-lg justify-center mt-2">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{t.rewardCredited}</span>
+                    </div>
+                  ) : (
+                    <button
+                      id={`complete_quest_btn_${quest.id}`}
+                      onClick={() => handleResolveQuestClick(quest)}
+                      className={`w-full text-center py-2 rounded-lg text-xs font-mono font-bold border transition duration-150 cursor-pointer ${
+                        isInProgress 
+                          ? 'bg-amber-500 text-black border-amber-500 hover:bg-amber-400' 
+                          : 'bg-white/5 hover:bg-white/10 text-zinc-300 border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {isInProgress ? (language === 'id' ? 'Lanjutkan Misi' : 'Continue Quest') : t.resolveQuest}
+                    </button>
+                  )}
                 </div>
-                <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">{quest.description}</p>
-                {quest.status === 'completed' ? (
-                  <div className="text-[10px] text-emerald-400 flex items-center gap-1.5 font-semibold bg-emerald-950/10 border border-emerald-900/30 p-2 rounded-lg justify-center mt-2">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{t.rewardCredited}</span>
-                  </div>
-                ) : (
-                  <button
-                    id={`complete_quest_btn_${quest.id}`}
-                    onClick={() => handleQuestCompletion(quest.id)}
-                    className="w-full text-center py-2 bg-white/5 hover:bg-white/10 text-zinc-300 rounded-lg text-xs font-mono font-bold border border-white/10 hover:text-white transition duration-150 cursor-pointer"
-                  >
-                    {t.resolveQuest}
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
         {/* Subscription anti-leak sensor */}
-        <div className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-md space-y-4">
+        <div className="bg-[#0a0a0a] p-5 rounded-2xl border border-white/5 shadow-md space-y-4 font-sans">
           <div>
             <h4 className="font-bold text-white text-xs uppercase font-mono tracking-wider flex items-center gap-1.5">
               <CreditCard className="w-4 h-4 text-rose-400" /> {t.subscriptionLeakSensor}
@@ -980,31 +872,34 @@ export default function DashboardView({
             <p className="text-[11px] text-zinc-500 mt-1">{t.subscriptionLeakDesc}</p>
           </div>
 
-          <div className="space-y-3 text-xs font-sans">
-            <div className="flex justify-between items-center p-3.5 bg-zinc-950/60 rounded-xl border border-white/5 leading-tight">
-              <div>
-                <span className="text-white font-medium block">{t.unusedFitnessTitle}</span>
-                <span className="text-[9px] text-zinc-500 font-mono block mt-1">{language === 'id' ? 'Menguras Rp 220.000 / bln • Penggunaan Nol' : 'Draining $19.99 / mo • Zero login record'}</span>
+          <div className="space-y-3 text-xs">
+            {subscriptions.length === 0 ? (
+              <div className="text-center p-6 bg-zinc-950/20 border border-dashed border-white/5 text-zinc-500 rounded-xl">
+                {language === 'id' ? 'Tidak ada pembocoran langganan terdeteksi!' : 'No silent subscription leaks active!'}
               </div>
-              <button
-                onClick={() => alert(t.prunedSuccess)}
-                className="text-[10px] bg-rose-950/20 border border-rose-900/40 text-rose-300 font-semibold px-3 py-1.5 rounded-lg hover:bg-rose-900 hover:text-white transition-all cursor-pointer"
-              >
-                {t.prune}
-              </button>
-            </div>
-            <div className="flex justify-between items-center p-3.5 bg-zinc-950/60 rounded-xl border border-white/5 leading-tight">
-              <div>
-                <span className="text-white font-medium block">{t.cloudStackTitle}</span>
-                <span className="text-[9px] text-zinc-550 font-mono block mt-1">{language === 'id' ? 'Menguras Rp 450.000 / bln • API Tidak Aktif' : 'Draining $35.000 / mo • Inactive API space'}</span>
-              </div>
-              <button
-                onClick={() => alert(t.prunedSuccess)}
-                className="text-[10px] bg-rose-950/20 border border-rose-900/40 text-rose-300 font-semibold px-3 py-1.5 rounded-lg hover:bg-rose-900 hover:text-white transition-all cursor-pointer"
-              >
-                {t.prune}
-              </button>
-            </div>
+            ) : (
+              subscriptions.map(sub => (
+                <div key={sub.id} className="flex justify-between items-center p-3.5 bg-zinc-950/60 rounded-xl border border-white/5 leading-tight hover:border-white/12 transition duration-150">
+                  <div>
+                    <span className="text-white font-medium block">{sub.name}</span>
+                    <span className="text-[9px] text-zinc-500 font-mono block mt-1">{sub.description}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onDeleteSubscription(sub.id);
+                      alert(t.prunedSuccess || "Recalculated cash balance surplus!");
+                      if (activeQuestInProgressId === 'quest-1') {
+                        onCompleteQuest('quest-1');
+                        alert(language === 'id' ? "Selamat! Misi selesai. 350 XP berhasil didapatkan!" : "Congratulations! Quest Purge Subscription Bloat is solved! 350 XP earned!");
+                      }
+                    }}
+                    className="text-[10px] bg-rose-950/20 border border-rose-900/40 text-rose-300 font-semibold px-3 py-1.5 rounded-lg hover:bg-rose-900 hover:text-white transition-all cursor-pointer"
+                  >
+                    {t.prune}
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -1013,3 +908,4 @@ export default function DashboardView({
     </div>
   );
 }
+

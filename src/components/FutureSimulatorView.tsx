@@ -20,9 +20,18 @@ interface FutureSimProps {
   onChangePreferences: (prefs: Partial<UserPreferences>) => void;
   language: Language;
   t: any;
+  activeQuestInProgressId?: string | null;
+  onCompleteQuest?: (questId: string) => void;
 }
 
-export default function FutureSimulatorView({ preferences, onChangePreferences, language, t }: FutureSimProps) {
+export default function FutureSimulatorView({ 
+  preferences, 
+  onChangePreferences, 
+  language, 
+  t,
+  activeQuestInProgressId,
+  onCompleteQuest
+}: FutureSimProps) {
   const [targetAge, setTargetAge] = useState(55);
   const [currentAge, setCurrentAge] = useState(25);
   const [isLoading, setIsLoading] = useState(false);
@@ -154,7 +163,43 @@ export default function FutureSimulatorView({ preferences, onChangePreferences, 
   const riskOptions = ['conservative', 'moderate', 'aggressive'] as const;
 
   return (
-    <div id="future_sim_root" className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div className="space-y-6 font-sans">
+      {/* Active Quest Banner */}
+      {activeQuestInProgressId === 'quest-3' && (
+        <div className="bg-amber-500/5 border border-amber-500/30 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-[0_0_20px_rgba(245,158,11,0.05)] animate-fade-in">
+          <div className="space-y-1">
+            <span className="inline-flex items-center gap-1 text-[9px] bg-amber-500 text-black font-mono font-black px-2 py-0.5 rounded uppercase tracking-wider font-bold">
+              <Sparkles className="w-3 h-3 animate-spin" />
+              {language === 'id' ? 'MISI AKTIF BERJALAN' : 'ACTIVE QUEST'}
+            </span>
+            <h4 className="text-xs font-bold text-white mt-1 uppercase tracking-tight font-mono">
+              {language === 'id' ? 'Simulasikan & Kalibrasi Model Masa Depan Anda!' : 'Project and Calibrate Your Future Financial Horizons!'}
+            </h4>
+            <p className="text-[11px] text-zinc-300 leading-relaxed font-sans">
+              {language === 'id' 
+                ? 'Misi dimulai! Silakan sesuaikan target umur pensiun atau kekayaan Anda pada rentang kontrol slider di bawah lalu jalankan atau perbarui simulasi proyeksi demi mengklaim 550 XP.'
+                : 'Active Quest Started! Adjust the sliders, test high or low risk allocations, then trigger the trajectory simulator to calibrate your retirement path and secure 550 XP.'}
+            </p>
+          </div>
+          {onCompleteQuest && (
+            <button
+              id="claim_simulated_quest_rewards_btn"
+              onClick={() => {
+                onCompleteQuest('quest-3');
+                alert(language === 'id' 
+                  ? 'Selamat! Misi Selesai! Model masa depan berhasil diseimbangkan, Anda mendapatkan tambahan 550 XP!' 
+                  : 'Congratulations! Model calibrated perfectly. 555 XP has been credited successfully!'
+                );
+              }}
+              className="py-2 px-4 bg-amber-500 hover:bg-amber-400 text-black text-xs font-mono font-bold rounded-xl transition cursor-pointer self-start sm:self-center uppercase"
+            >
+              {language === 'id' ? 'Verifikasi & Selesaikan Misi' : 'Verify & Claim XP'}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div id="future_sim_root" className="grid grid-cols-1 lg:grid-cols-12 gap-6 font-sans">
 
       {/* Control sliders */}
       <div className="lg:col-span-4 bg-[#0a0a0a] p-6 rounded-2xl border border-white/5 shadow-xl space-y-5">
@@ -421,6 +466,7 @@ export default function FutureSimulatorView({ preferences, onChangePreferences, 
 
       </div>
 
+    </div>
     </div>
   );
 }

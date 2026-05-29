@@ -9,11 +9,11 @@ export const TRANSLATIONS = {
   en: {
     // Navigation
     tabOverview: "Dashboard HUD",
-    tabChat: "AturDuit Advisor Chat",
+    tabChat: "AI Consultant",
     tabHealth: "Health & Statement OCR",
     tabScam: "Scam Sentinel",
     tabSimulator: "Future Simulator",
-    tabPitch: "Pitch Presentation",
+    tabPitch: "About Dooitly",
 
     // Header & system tags
     activeMode: "Active Mode",
@@ -137,14 +137,14 @@ export const TRANSLATIONS = {
     strategicAlignment: "AturDuit OS Strategic Alignment:",
 
     // Advisor Chat
-    advisorTitle: "AturDuit Personal Wealth Advisor",
+    advisorTitle: "AI Consultant",
     advisorSubtitle: "Conversational investment coach driven by adaptive semantic memory contexts",
     presettedInquiries: "Preset Inquiries:",
     askAboutInvesting: "Ask how to allocate my assets",
     askAboutSavings: "Ask how to increase savings",
     askAboutDebt: "Ask how to handle debt payoff",
-    chatPlaceholder: "Ask AturDuit anything about compounding formulas, portfolio allocations, tax strategies...",
-    sendBtn: "Command AturDuit",
+    chatPlaceholder: "Ask dooitly anything about compounding formulas, portfolio allocations, tax strategies...",
+    sendBtn: "Command dooitly",
 
     // Goals Manager Form
     goalsManager: "Goals Planner",
@@ -160,11 +160,11 @@ export const TRANSLATIONS = {
   id: {
     // Navigation
     tabOverview: "HUD Dasbor",
-    tabChat: "Asisten Chat AturDuit",
+    tabChat: "AI Consultant",
     tabHealth: "Kesehatan & OCR Dokumen",
     tabScam: "Pendeteksi Penipuan",
     tabSimulator: "Simulasi Masa Depan",
-    tabPitch: "Presentasi Strategis",
+    tabPitch: "Tentang Dooitly",
 
     // Header & system tags
     activeMode: "Mode Aktif",
@@ -288,13 +288,13 @@ export const TRANSLATIONS = {
     strategicAlignment: "Saran Strategis AI AturDuit:",
 
     // Advisor Chat
-    advisorTitle: "Konsultan Keuangan AI AturDuit",
+    advisorTitle: "AI Consultant",
     advisorSubtitle: "Asisten penasihat kekayaan personal dengan kecerdasan Gemini",
     presettedInquiries: "Pertanyaan Cepat:",
     askAboutInvesting: "Bagaimana cara alokasi aset terbaik?",
     askAboutSavings: "Bagaimana meningkatkan tabungan darurat?",
     askAboutDebt: "Bagaimana melunasi hutang dengan cepat?",
-    chatPlaceholder: "Tanyakan apa saja kepada AturDuit tentang rumus bunga majemuk, porsi investasi, pajak, reksa dana...",
+    chatPlaceholder: "Tanyakan apa saja kepada dooitly tentang rumus bunga majemuk, porsi investasi, pajak, reksa dana...",
     sendBtn: "Kirim Instruksi",
 
     // Goals Manager Form
