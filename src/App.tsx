@@ -22,7 +22,7 @@ import AboutDooitlyView from './components/AboutDooitlyView';
 import FinancialCommandCenterView from './components/FinancialCommandCenterView';
 import AssetCommandCenterView from './components/AssetCommandCenterView';
 // @ts-ignore
-import dooitlyLogo from './assets/images/dooitly_logo_1779992893314.png';
+// Inline styled logo utilized below to bypass binary file restrictions in static hosting
 
 
 export default function App() {
@@ -475,8 +475,10 @@ export default function App() {
         {/* Mobile Header Bar */}
         <header className="lg:hidden flex items-center justify-between bg-[#080808]/95 backdrop-blur-md p-4 mb-6 rounded-2xl border border-white/10 shadow-lg select-none">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl overflow-hidden shadow-[0_0_10px_rgba(99,102,241,0.3)] shrink-0 bg-[#0a0a0a]">
-              <img src={dooitlyLogo} alt="dooitly logo" className="w-full h-full object-cover shrink-0 select-none" referrerPolicy="no-referrer" />
+            <div className="w-9 h-9 rounded-xl overflow-hidden shadow-[0_0_10px_rgba(99,102,241,0.3)] shrink-0 bg-[#0a0a0a] flex items-center justify-center">
+              <div className="w-full h-full bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-black text-white italic select-none text-sm">
+                d
+              </div>
             </div>
             <div>
               <div className="flex items-center gap-1">
@@ -508,8 +510,10 @@ export default function App() {
             {/* Logo block with desktop collapse/expand selector */}
              <div className="flex items-center justify-between border-b border-white/10 pb-5">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(99,102,241,0.35)] shrink-0 select-none bg-[#0a0a0a]">
-                  <img src={dooitlyLogo} alt="dooitly logo" className="w-full h-full object-cover shrink-0 select-none" referrerPolicy="no-referrer" />
+                <div className="w-10 h-10 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(99,102,241,0.35)] shrink-0 select-none bg-[#0a0a0a] flex items-center justify-center">
+                  <div className="w-full h-full bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-black text-white italic select-none text-base">
+                    d
+                  </div>
                 </div>
                 {isSidebarExpanded && (
                   <div>
