@@ -10,11 +10,12 @@ import {
   Activity, Target, Cpu, BookOpen, Clock, Compass, HelpCircle as TooltipIcon, Lightbulb, Loader2, AlertTriangle, Download, Layers, PieChart as PieChartIcon
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts';
 import { Transaction, FinancialGoal, UserPreferences, InvestmentExplanation, MonthlyRecap, Subscription, Asset } from '../types';
 import { FINTECH_QUESTS } from '../data/mockTransactions';
 import { Language } from '../data/translations';
+import ExportWizardModal from './ExportWizardModal';
 
 interface DashProps {
   preferences: UserPreferences;
@@ -70,16 +71,16 @@ export default function DashboardView({
   const componentRef = useRef<HTMLDivElement>(null);
 
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [exportWizardOpen, setExportWizardOpen] = useState(false);
+  const [wizardFilename, setWizardFilename] = useState('');
+  const [wizardExportType, setWizardExportType] = useState<'pdf' | 'csv' | 'json'>('csv');
+  const [wizardDataContent, setWizardDataContent] = useState('');
 
   const exportToPDF = async () => {
-    if (!componentRef.current) return;
-    const canvas = await html2canvas(componentRef.current);
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save('hud_dashboard.pdf');
+    setWizardFilename('hud_dashboard.pdf');
+    setWizardExportType('pdf');
+    setWizardDataContent('');
+    setExportWizardOpen(true);
   };
 
   const exportToCSV = (type: 'transactions' | 'assets') => {
@@ -110,15 +111,10 @@ export default function DashboardView({
     }
 
     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setWizardFilename(filename);
+    setWizardExportType('csv');
+    setWizardDataContent(csvContent);
+    setExportWizardOpen(true);
   };
 
   const exportToJSON = () => {
@@ -131,15 +127,10 @@ export default function DashboardView({
       goals,
       subscriptions
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", 'hud_dashboard_data.json');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setWizardFilename('hud_dashboard_data.json');
+    setWizardExportType('json');
+    setWizardDataContent(JSON.stringify(data, null, 2));
+    setExportWizardOpen(true);
   };
 
   // Goal Form Fields
@@ -373,7 +364,7 @@ export default function DashboardView({
         </div>
         
         <div className="flex items-center gap-3">
-          <div className="relative">
+          <div className="relative" data-html2canvas-ignore="true">
             <button 
               onClick={() => setIsExportOpen(!isExportOpen)}
               className="flex items-center gap-2 text-xs font-mono uppercase bg-zinc-900 hover:bg-zinc-800 text-zinc-300 px-3.5 py-2 rounded-lg border border-white/5 transition cursor-pointer select-none"
@@ -418,6 +409,16 @@ export default function DashboardView({
                 </div>
               </>
             )}
+
+            <ExportWizardModal
+              isOpen={exportWizardOpen}
+              onClose={() => setExportWizardOpen(false)}
+              filename={wizardFilename}
+              exportType={wizardExportType}
+              dataContent={wizardDataContent}
+              componentRef={componentRef}
+              language={language}
+            />
           </div>
           <span className="text-[10px] font-mono text-zinc-550 bg-zinc-950 p-1.5 px-3 border border-white/5 rounded-md uppercase tracking-wider hidden sm:inline-block">
             {language === 'id' ? 'SISTEM DIPANTAU • NYALA' : 'SECURE HUD NODE • ACTIVE'}

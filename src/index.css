@@ -52,3 +52,96 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .backend-container {
   backdrop-filter: blur(16px);
 }
+
+/* PDF High-Contrast Print Theme Overrides */
+.pdf-print-theme {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.pdf-print-theme *,
+.pdf-print-theme *::before,
+.pdf-print-theme *::after {
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+/* Treat panels/containers with a soft white card background & clear grey border */
+.pdf-print-theme .bg-zinc-950,
+.pdf-print-theme .bg-zinc-900,
+.pdf-print-theme .bg-zinc-900\/40,
+.pdf-print-theme .bg-zinc-950\/40,
+.pdf-print-theme .bg-zinc-950\/20,
+.pdf-print-theme .bg-[#050506],
+.pdf-print-theme .bg-[#0a0a0a],
+.pdf-print-theme .bg-[#0a0a0a]\/50,
+.pdf-print-theme .bg-[#0e0e10]\/30,
+.pdf-print-theme .bg-[#0d0d0e]\/60,
+.pdf-print-theme .bg-zinc-900\/30 {
+  background: #f8fafc !important;
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Text elements */
+.pdf-print-theme h1,
+.pdf-print-theme h2,
+.pdf-print-theme h3,
+.pdf-print-theme h4,
+.pdf-print-theme .text-white,
+.pdf-print-theme .text-zinc-100,
+.pdf-print-theme .text-zinc-200,
+.pdf-print-theme .text-zinc-350,
+.pdf-print-theme .text-zinc-300,
+.pdf-print-theme .text-indigo-100 {
+  color: #0f172a !important;
+}
+
+.pdf-print-theme .text-zinc-400,
+.pdf-print-theme .text-zinc-500,
+.pdf-print-theme .text-zinc-550,
+.pdf-print-theme .text-zinc-650 {
+  color: #475569 !important;
+}
+
+/* Borders */
+.pdf-print-theme .border,
+.pdf-print-theme .border-t,
+.pdf-print-theme .border-b,
+.pdf-print-theme .border-r,
+.pdf-print-theme .border-l,
+.pdf-print-theme .border-white\/5,
+.pdf-print-theme .border-white\/10,
+.pdf-print-theme .border-zinc-800 {
+  border-color: #cbd5e1 !important;
+}
+
+/* Recharts Chart line and grid configurations for high contrast printing */
+.pdf-print-theme .recharts-cartesian-grid-horizontal line,
+.pdf-print-theme .recharts-cartesian-grid-vertical line {
+  stroke: #cbd5e1 !important;
+}
+
+.pdf-print-theme .recharts-text,
+.pdf-print-theme .recharts-label {
+  fill: #334155 !important;
+}
+
+/* Form controls */
+.pdf-print-theme select,
+.pdf-print-theme input {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Hide the export UI elements completely during screenshot generation */
+.pdf-print-theme [data-html2canvas-ignore="true"],
+.pdf-print-theme .export-wizard-popup {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+

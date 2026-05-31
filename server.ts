@@ -5,6 +5,8 @@
 
 import express from "express";
 import path from "path";
+import fs from "fs";
+import os from "os";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -764,6 +766,74 @@ All text values MUST be completely in the user's requested language (${language 
   } catch (error: any) {
     console.error("Analyze Cashflow API error:", error);
     res.status(500).json({ error: error?.message || "Failed to generate AI trend analysis report" });
+  }
+});
+
+// API to save exports into a server-side temp folder
+app.post("/api/export/save-temp", (req, res) => {
+  try {
+    const { filename, content, isBase64 } = req.body;
+    if (!filename || !content) {
+      return res.status(400).json({ error: "Missing filename or content" });
+    }
+
+    // Determine the safe temporary folder path
+    const tempDir = path.join(os.tmpdir(), "dooitly_exports");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Clean filename to prevent path traversal
+    const safeFilename = path.basename(filename);
+    const targetPath = path.join(tempDir, safeFilename);
+
+    if (isBase64) {
+      // Decode base64 content (for PDFs)
+      const buffer = Buffer.from(content, "base64");
+      fs.writeFileSync(targetPath, buffer);
+    } else {
+      // Direct string writing (for CSV, JSON)
+      fs.writeFileSync(targetPath, content, "utf8");
+    }
+
+    console.log(`Saved export file to: ${targetPath}`);
+
+    res.json({
+      success: true,
+      message: "Successfully saved to temporary server storage",
+      path: targetPath,
+      filename: safeFilename,
+      size: fs.statSync(targetPath).size
+    });
+  } catch (error: any) {
+    console.error("Error saving export to temp:", error);
+    res.status(500).json({ error: error?.message || "Failed to save file to temp server directory" });
+  }
+});
+
+// API list saved files in temp folder for retrieval or cleanup
+app.get("/api/export/list-temp", (req, res) => {
+  try {
+    const tempDir = path.join(os.tmpdir(), "dooitly_exports");
+    if (!fs.existsSync(tempDir)) {
+      return res.json({ files: [] });
+    }
+
+    const files = fs.readdirSync(tempDir).map(file => {
+      const filePath = path.join(tempDir, file);
+      const stat = fs.statSync(filePath);
+      return {
+        filename: file,
+        path: filePath,
+        size: stat.size,
+        createdAt: stat.birthtime || stat.mtime
+      };
+    });
+
+    res.json({ files: files.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) });
+  } catch (error: any) {
+    console.error("Error listing temp files:", error);
+    res.status(500).json({ error: error?.message || "Failed to list files from temp storage" });
   }
 });
 

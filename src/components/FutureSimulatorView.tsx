@@ -253,38 +253,45 @@ export default function FutureSimulatorView({
 
         {/* Current Liquid Savings */}
         <div className="space-y-1.5">
-          <div className="flex justify-between text-xs font-mono">
-            <span className="text-zinc-500">{t.currentAssetLabel}</span>
-            <span className="text-teal-400 font-bold">{preferences.currency}{preferences.currentSavings.toLocaleString()}</span>
+          <label htmlFor="sim_input_liquid_savings" className="text-xs font-mono text-zinc-500 uppercase font-bold block">
+            {t.currentAssetLabel}
+          </label>
+          <div className="flex items-center bg-zinc-950 border border-white/5 focus-within:border-teal-500/50 rounded-xl px-3.5 py-2.5 transition">
+            <span className="text-teal-400 font-bold font-mono mr-2 text-sm">{preferences.currency}</span>
+            <input
+              id="sim_input_liquid_savings"
+              type="number"
+              value={preferences.currentSavings || ''}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                onChangePreferences({ currentSavings: isNaN(val) ? 0 : val });
+              }}
+              placeholder="0"
+              className="bg-transparent text-white font-bold font-mono focus:outline-none w-full text-left text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
           </div>
-          <input 
-            id="sim_slider_liquid_savings"
-            type="range"
-            min={0}
-            max={500000}
-            step={5000}
-            value={preferences.currentSavings}
-            onChange={(e) => onChangePreferences({ currentSavings: parseInt(e.target.value) })}
-            className="w-full h-1.5 rounded-lg bg-zinc-950 appearance-none pointer-events-auto accent-indigo-500 cursor-pointer"
-          />
         </div>
 
         {/* Monthly Investment Rate */}
         <div className="space-y-1.5">
-          <div className="flex justify-between text-xs font-mono">
-            <span className="text-zinc-500">{t.monthlySurplusLabel}</span>
-            <span className="text-indigo-400 font-bold">{preferences.currency}{preferences.monthlyInvestment.toLocaleString()} / bln</span>
+          <label htmlFor="sim_input_monthly_rate" className="text-xs font-mono text-zinc-500 uppercase font-bold block">
+            {t.monthlySurplusLabel}
+          </label>
+          <div className="flex items-center bg-zinc-950 border border-white/5 focus-within:border-indigo-500/50 rounded-xl px-3.5 py-2.5 transition">
+            <span className="text-indigo-400 font-bold font-mono mr-2 text-sm">{preferences.currency}</span>
+            <input
+              id="sim_input_monthly_rate"
+              type="number"
+              value={preferences.monthlyInvestment || ''}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                onChangePreferences({ monthlyInvestment: isNaN(val) ? 0 : val });
+              }}
+              placeholder="0"
+              className="bg-transparent text-white font-bold font-mono focus:outline-none w-full text-left text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <span className="text-zinc-500 text-xs font-mono ml-2 shrink-0">{language === 'id' ? '/bln' : '/mo'}</span>
           </div>
-          <input 
-            id="sim_slider_monthly_rate"
-            type="range"
-            min={0}
-            max={10000}
-            step={100}
-            value={preferences.monthlyInvestment}
-            onChange={(e) => onChangePreferences({ monthlyInvestment: parseInt(e.target.value) })}
-            className="w-full h-1.5 rounded-lg bg-zinc-950 appearance-none pointer-events-auto accent-indigo-500 cursor-pointer"
-          />
         </div>
 
         {/* Risk appetite list selection */}

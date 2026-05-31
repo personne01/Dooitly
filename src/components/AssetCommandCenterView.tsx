@@ -13,8 +13,9 @@ import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, L
 import { Asset, UserPreferences } from '../types';
 import { Language } from '../data/translations';
 import FutureSimulatorView from './FutureSimulatorView';
+import ExportWizardModal from './ExportWizardModal';
 import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 
 interface AssetCommandCenterProps {
   preferences: UserPreferences;
@@ -47,16 +48,16 @@ export default function AssetCommandCenterView({
   const componentRef = useRef<HTMLDivElement>(null);
 
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [exportWizardOpen, setExportWizardOpen] = useState(false);
+  const [wizardFilename, setWizardFilename] = useState('');
+  const [wizardExportType, setWizardExportType] = useState<'pdf' | 'csv' | 'json'>('csv');
+  const [wizardDataContent, setWizardDataContent] = useState('');
 
   const exportToPDF = async () => {
-    if (!componentRef.current) return;
-    const canvas = await html2canvas(componentRef.current);
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save('portfolio_analysis.pdf');
+    setWizardFilename('portfolio_analysis.pdf');
+    setWizardExportType('pdf');
+    setWizardDataContent('');
+    setExportWizardOpen(true);
   };
 
   const exportToCSV = () => {
@@ -69,15 +70,10 @@ export default function AssetCommandCenterView({
       `"${(a.institution || '').replace(/"/g, '""')}"`
     ]);
     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", 'portfolio_assets.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setWizardFilename('portfolio_assets.csv');
+    setWizardExportType('csv');
+    setWizardDataContent(csvContent);
+    setExportWizardOpen(true);
   };
 
   const exportToJSON = () => {
@@ -86,15 +82,10 @@ export default function AssetCommandCenterView({
       currency: preferences.currency,
       assets
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", 'portfolio_assets_data.json');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setWizardFilename('portfolio_assets_data.json');
+    setWizardExportType('json');
+    setWizardDataContent(JSON.stringify(data, null, 2));
+    setExportWizardOpen(true);
   };
 
   // Input states for new asset
@@ -310,7 +301,7 @@ export default function AssetCommandCenterView({
           <p className="text-xs text-zinc-400 mt-1">{l.subtitle}</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="relative">
+          <div className="relative" data-html2canvas-ignore="true">
             <button 
               onClick={() => setIsExportOpen(!isExportOpen)}
               className="flex items-center gap-2 text-xs font-mono uppercase bg-zinc-900 hover:bg-zinc-800 text-zinc-300 px-3 py-2 rounded-lg border border-white/5 transition"
@@ -348,6 +339,16 @@ export default function AssetCommandCenterView({
                 </div>
               </>
             )}
+
+            <ExportWizardModal
+              isOpen={exportWizardOpen}
+              onClose={() => setExportWizardOpen(false)}
+              filename={wizardFilename}
+              exportType={wizardExportType}
+              dataContent={wizardDataContent}
+              componentRef={componentRef}
+              language={language}
+            />
           </div>
           <span className="text-[10px] font-mono text-zinc-500 bg-zinc-950 p-1.5 px-3 border border-white/5 rounded-md uppercase tracking-wider">
             SECURE PORTFOLIO NODE • ACTIVE

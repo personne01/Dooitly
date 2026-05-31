@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PlusCircle, RefreshCw, Trash2, Activity, Target, Save, CreditCard, Sparkles, CheckCircle2, ShieldAlert, Upload, Loader2, Calendar, Camera, AlertTriangle, Download } from 'lucide-react';
+import { PlusCircle, RefreshCw, Trash2, Activity, Target, Save, CreditCard, Sparkles, CheckCircle2, ShieldAlert, Upload, Loader2, Calendar, Camera, AlertTriangle, Download, X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Transaction, FinancialGoal, UserPreferences, MonthlyRecap, Subscription } from '../types';
 import { Language } from '../data/translations';
 import HealthAnalyzerView from './HealthAnalyzerView';
+import ExportWizardModal from './ExportWizardModal';
 
 interface FCCProps {
   preferences: UserPreferences;
@@ -68,16 +69,16 @@ export default function FinancialCommandCenterView({
   const componentRef = useRef<HTMLDivElement>(null);
 
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [exportWizardOpen, setExportWizardOpen] = useState(false);
+  const [wizardFilename, setWizardFilename] = useState('');
+  const [wizardExportType, setWizardExportType] = useState<'pdf' | 'csv' | 'json'>('csv');
+  const [wizardDataContent, setWizardDataContent] = useState('');
 
   const exportToPDF = async () => {
-    if (!componentRef.current) return;
-    const canvas = await html2canvas(componentRef.current);
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save('cashflow_command.pdf');
+    setWizardFilename('cashflow_command.pdf');
+    setWizardExportType('pdf');
+    setWizardDataContent('');
+    setExportWizardOpen(true);
   };
 
   const exportToCSV = (type: 'transactions' | 'recaps' | 'subscriptions') => {
@@ -96,14 +97,76 @@ export default function FinancialCommandCenterView({
       ]);
       filename = 'cashflow_transactions.csv';
     } else if (type === 'recaps') {
-      headers = ['Month/Year', 'Monthly Income', 'Monthly Expense', 'Current Savings', 'Monthly Investment'];
-      rows = monthlyRecaps.map(mr => [
-        mr.monthYear,
-        mr.monthlyIncome.toString(),
-        mr.monthlyExpense.toString(),
-        mr.currentSavings.toString(),
-        mr.monthlyInvestment.toString()
-      ]);
+      headers = ['Month/Year', 'Monthly Income', 'Monthly Expense', 'Net Flow', 'Current Savings', 'Monthly Investment'];
+      
+      // Group transactions dynamically by month-year to prevent empty CSV if no manually input recaps are logged yet
+      const recapsMap: Record<string, { 
+        monthYear: string; 
+        income: number; 
+        expense: number; 
+      }> = {};
+
+      const monthsId = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      const monthsEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const months = language === 'id' ? monthsId : monthsEn;
+
+      // Classify and sum up active detailed transaction log items
+      transactions.forEach(tx => {
+        const txDateStr = tx.date || new Date().toISOString().split('T')[0];
+        const dateObj = new Date(txDateStr);
+        if (isNaN(dateObj.getTime())) return;
+        
+        const year = dateObj.getFullYear();
+        const monthIndex = dateObj.getMonth();
+        const monthLabel = `${months[monthIndex]} ${year}`;
+        const groupKey = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+
+        if (!recapsMap[groupKey]) {
+          recapsMap[groupKey] = {
+            monthYear: monthLabel,
+            income: 0,
+            expense: 0
+          };
+        }
+
+        if (tx.type === 'income') {
+          recapsMap[groupKey].income += tx.amount;
+        } else {
+          recapsMap[groupKey].expense += tx.amount;
+        }
+      });
+
+      // Merge with manual recap histories to ensure any manual overrides/entries also exist
+      monthlyRecaps.forEach(mr => {
+        const foundKey = Object.keys(recapsMap).find(k => recapsMap[k].monthYear.toLowerCase() === mr.monthYear.toLowerCase());
+        if (!foundKey) {
+          const key = `manual-${mr.id}`;
+          recapsMap[key] = {
+            monthYear: mr.monthYear,
+            income: mr.monthlyIncome,
+            expense: mr.monthlyExpense
+          };
+        }
+      });
+
+      // Sort dates chronologically (newest to oldest)
+      const sortedKeys = Object.keys(recapsMap).sort((a, b) => {
+        if (a.startsWith('manual') || b.startsWith('manual')) return 0;
+        return b.localeCompare(a);
+      });
+
+      rows = sortedKeys.map(key => {
+        const item = recapsMap[key];
+        const netFlow = item.income - item.expense;
+        return [
+          `"${item.monthYear}"`,
+          item.income.toString(),
+          item.expense.toString(),
+          netFlow.toString(),
+          preferences.currentSavings.toString(),
+          preferences.monthlyInvestment.toString()
+        ];
+      });
       filename = 'cashflow_monthly_recaps.csv';
     } else {
       headers = ['Name', 'Cost', 'Active Status', 'Description'];
@@ -117,15 +180,10 @@ export default function FinancialCommandCenterView({
     }
 
     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setWizardFilename(filename);
+    setWizardExportType('csv');
+    setWizardDataContent(csvContent);
+    setExportWizardOpen(true);
   };
 
   const exportToJSON = () => {
@@ -138,15 +196,10 @@ export default function FinancialCommandCenterView({
       subscriptions,
       goals
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", 'cashflow_data.json');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setWizardFilename('cashflow_data.json');
+    setWizardExportType('json');
+    setWizardDataContent(JSON.stringify(data, null, 2));
+    setExportWizardOpen(true);
   };
 
   const [activeTab, setActiveTab] = useState<'bulanan' | 'keseluruhan'>('bulanan');
@@ -190,6 +243,95 @@ export default function FinancialCommandCenterView({
     detectedRedFlags: string[];
     recommendation: string;
   } | null>(null);
+
+  const [historyGrouping, setHistoryGrouping] = useState<'harian' | 'bulanan' | 'tahunan'>('bulanan');
+  const [selectedHistoryGroup, setSelectedHistoryGroup] = useState<{ key: string; label: string } | null>(null);
+
+  const getGroupedHistory = () => {
+    const groups: Record<string, { 
+      key: string; 
+      label: string; 
+      income: number; 
+      expense: number; 
+      count: number;
+      timestamp: number;
+    }> = {};
+
+    const monthsId = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const monthsEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const months = language === 'id' ? monthsId : monthsEn;
+
+    transactions.forEach(tx => {
+      const txDateStr = tx.date || new Date().toISOString().split('T')[0];
+      const dateObj = new Date(txDateStr);
+      const isValidDate = !isNaN(dateObj.getTime());
+
+      let key = '';
+      let label = '';
+      let timestamp = isValidDate ? dateObj.getTime() : 0;
+
+      if (!isValidDate) {
+        key = 'unknown';
+        label = language === 'id' ? 'Tanggal Tidak Diketahui' : 'Unknown Date';
+      } else if (historyGrouping === 'harian') {
+        key = txDateStr;
+        const parts = txDateStr.split('-');
+        if (parts.length === 3) {
+          const [year, month, day] = parts;
+          const mName = months[parseInt(month, 10) - 1] || '';
+          label = language === 'id' ? `${parseInt(day, 10)} ${mName} ${year}` : `${mName} ${parseInt(day, 10)}, ${year}`;
+        } else {
+          label = txDateStr;
+        }
+      } else if (historyGrouping === 'bulanan') {
+        const parts = txDateStr.split('-');
+        const year = parts[0];
+        const month = parts[1];
+        key = `${year}-${month}`;
+        const mName = months[parseInt(month, 10) - 1] || '';
+        label = `${mName} ${year}`;
+        timestamp = new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1).getTime();
+      } else {
+        // tahunan
+        const year = txDateStr.split('-')[0];
+        key = year;
+        label = year;
+        timestamp = new Date(parseInt(year, 10), 0, 1).getTime();
+      }
+
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          label,
+          income: 0,
+          expense: 0,
+          count: 0,
+          timestamp
+        };
+      }
+
+      groups[key].count += 1;
+      if (tx.type === 'income') {
+        groups[key].income += tx.amount;
+      } else {
+        groups[key].expense += tx.amount;
+      }
+    });
+
+    return Object.values(groups).sort((a, b) => b.timestamp - a.timestamp);
+  };
+
+  const getTransactionsForSelectedGroup = () => {
+    if (!selectedHistoryGroup) return [];
+    return transactions.filter(tx => {
+      const txDateStr = tx.date || new Date().toISOString().split('T')[0];
+      if (historyGrouping === 'harian') {
+        return txDateStr === selectedHistoryGroup.key;
+      } else {
+        return txDateStr.startsWith(selectedHistoryGroup.key);
+      }
+    });
+  };
 
   const [trendTimeframe, setTrendTimeframe] = useState<'harian' | 'mingguan' | 'bulanan' | 'tahunan'>('bulanan');
 
@@ -521,7 +663,7 @@ export default function FinancialCommandCenterView({
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-white">Cashflow Command Center</h2>
         <div className="flex gap-3">
-          <div className="relative">
+          <div className="relative" data-html2canvas-ignore="true">
             <button 
               onClick={() => setIsExportOpen(!isExportOpen)}
               className="flex items-center gap-2 text-xs font-mono uppercase bg-zinc-900 hover:bg-zinc-800 text-zinc-300 px-3 py-2 rounded-lg border border-white/5 transition"
@@ -573,6 +715,16 @@ export default function FinancialCommandCenterView({
                 </div>
               </>
             )}
+
+            <ExportWizardModal
+              isOpen={exportWizardOpen}
+              onClose={() => setExportWizardOpen(false)}
+              filename={wizardFilename}
+              exportType={wizardExportType}
+              dataContent={wizardDataContent}
+              componentRef={componentRef}
+              language={language}
+            />
           </div>
           <span className="text-[10px] font-mono text-zinc-500 bg-zinc-950 p-1 px-2 border border-white/5 rounded-md uppercase">
             SECURE ENCRYPTED NODE • OPERATOR
@@ -851,10 +1003,39 @@ export default function FinancialCommandCenterView({
             </form>
 
             {/* List of microtransactions logged */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-[9px] font-mono text-zinc-500 uppercase tracking-wider">
-                <span>{language === 'id' ? 'RIWAYAT PENYATAAN TRANSAKSI' : 'TRANSACTION RECAP FEED'}</span>
-                <span className="text-indigo-400 font-bold">Total: {transactions.length} entries</span>
+            <div className="space-y-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2">
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider font-bold">
+                    {language === 'id' ? 'RIWAYAT PENYATAAN TRANSAKSI' : 'TRANSACTION RECAP FEED'}
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                    {language === 'id' ? 'Klik item untuk melihat rincian transaksi' : 'Click item to view transaction details'}
+                  </span>
+                </div>
+                
+                {/* Filter buttons to switch grouping type */}
+                <div className="flex bg-zinc-950 p-1 rounded-lg border border-white/5 gap-1 self-start sm:self-center">
+                  {(['harian', 'bulanan', 'tahunan'] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => {
+                        setHistoryGrouping(g);
+                        setSelectedHistoryGroup(null);
+                      }}
+                      className={`px-2.5 py-1 rounded text-[9px] uppercase font-mono transition font-bold select-none cursor-pointer ${
+                        historyGrouping === g 
+                          ? 'bg-indigo-600 text-white shadow font-black' 
+                          : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {g === 'harian' ? (language === 'id' ? 'Harian' : 'Daily') :
+                       g === 'bulanan' ? (language === 'id' ? 'Bulanan' : 'Monthly') :
+                       (language === 'id' ? 'Tahunan' : 'Yearly')}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {transactions.length === 0 ? (
@@ -863,30 +1044,34 @@ export default function FinancialCommandCenterView({
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                  {transactions.map(tx => (
-                    <div key={tx.id} className="p-3 bg-zinc-950/40 rounded-xl border border-white/5 flex items-center justify-between gap-3 hover:border-white/10 transition leading-tight">
-                      <div>
-                        <span className="font-bold text-white block text-xs">{tx.description}</span>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <span className="text-[9px] text-zinc-500 font-mono block uppercase">{tx.category}</span>
-                          <span className="text-zinc-650 font-mono">•</span>
-                          <span className="text-[9px] text-zinc-550 font-mono block">{tx.date}</span>
+                  {getGroupedHistory().map(group => {
+                    const netFlow = group.income - group.expense;
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        onClick={() => setSelectedHistoryGroup(group)}
+                        className="w-full text-left p-3 bg-zinc-950/40 hover:bg-zinc-900/60 rounded-xl border border-white/5 hover:border-indigo-500/30 flex items-center justify-between gap-3 transition-all duration-150 leading-tight group cursor-pointer"
+                      >
+                        <div className="space-y-1">
+                          <span className="font-bold text-white block text-xs group-hover:text-indigo-300 transition-colors">
+                            {group.label}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 font-mono block">
+                            {language === 'id' ? `${group.count} Transaksi` : `${group.count} Transactions`}
+                          </span>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2.5">
-                        <span className={`text-xs font-bold font-mono ${tx.type === 'income' ? 'text-teal-400' : 'text-rose-400'}`}>
-                          {tx.type === 'income' ? '+' : '-'}{preferences.currency}{tx.amount.toLocaleString()}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteTransaction(tx.id)}
-                          className="p-1.5 bg-rose-950/20 hover:bg-rose-900/30 text-rose-400 rounded transition duration-150 cursor-pointer"
-                        >
-                          <Trash2 className="w-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                        <div className="text-right space-y-0.5">
+                          <div className={`text-xs font-mono font-bold ${netFlow >= 0 ? 'text-teal-400' : 'text-rose-400'}`}>
+                            {netFlow >= 0 ? '+' : '-'}{preferences.currency}{Math.abs(netFlow).toLocaleString()}
+                          </div>
+                          <div className="text-[9px] text-zinc-500 font-mono">
+                            {language === 'id' ? 'Arus Bersih' : 'Net Flow'}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1334,6 +1519,142 @@ export default function FinancialCommandCenterView({
 
         </div>
       )}
+
+      {/* Dynamic Transactions Breakdown Modal */}
+      {selectedHistoryGroup && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in font-sans">
+          <div className="bg-[#0b0b0c] border border-white/10 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden my-8 relative">
+            
+            {/* Header */}
+            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-[#070708]">
+              <div>
+                <span className="text-[9px] font-mono font-black tracking-widest text-indigo-400 uppercase block">
+                  {language === 'id' ? 'RINCIAN REKAP STATISTIK' : 'RECAP BREAKDOWN FEED'}
+                </span>
+                <h3 className="text-base font-bold text-white mt-1">
+                  {selectedHistoryGroup.label}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryGroup(null)}
+                className="p-1 px-1.5 hover:bg-zinc-900 border border-white/10 rounded-lg text-zinc-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Stats section */}
+            <div className="p-5 bg-zinc-950/40 grid grid-cols-3 gap-3 border-b border-white/5 font-mono text-center">
+              <div className="bg-zinc-900/40 p-2.5 rounded-lg border border-white/5">
+                <span className="text-[9px] text-zinc-500 uppercase block">{language === 'id' ? 'Pemasukan' : 'Inflow'}</span>
+                <span className="text-xs font-bold text-teal-400 mt-1 block">
+                  +{preferences.currency}{getTransactionsForSelectedGroup()
+                    .filter(tx => tx.type === 'income')
+                    .reduce((sum, tx) => sum + tx.amount, 0)
+                    .toLocaleString()
+                  }
+                </span>
+              </div>
+              <div className="bg-zinc-900/40 p-2.5 rounded-lg border border-white/5">
+                <span className="text-[9px] text-zinc-500 uppercase block">{language === 'id' ? 'Pengeluaran' : 'Outflow'}</span>
+                <span className="text-xs font-bold text-rose-400 mt-1 block">
+                  -{preferences.currency}{getTransactionsForSelectedGroup()
+                    .filter(tx => tx.type === 'expense')
+                    .reduce((sum, tx) => sum + tx.amount, 0)
+                    .toLocaleString()
+                  }
+                </span>
+              </div>
+              <div className="bg-zinc-900/40 p-2.5 rounded-lg border border-white/5">
+                <span className="text-[9px] text-zinc-500 uppercase block">{language === 'id' ? 'Arus Bersih' : 'Net Flow'}</span>
+                {(() => {
+                  const txs = getTransactionsForSelectedGroup();
+                  const totalIn = txs.filter(tx => tx.type === 'income').reduce((sum, tx) => sum + tx.amount, 0);
+                  const totalOut = txs.filter(tx => tx.type === 'expense').reduce((sum, tx) => sum + tx.amount, 0);
+                  const net = totalIn - totalOut;
+                  return (
+                    <span className={`text-xs font-bold ${net >= 0 ? 'text-indigo-400' : 'text-rose-500'} mt-1 block`}>
+                      {net >= 0 ? '+' : '-'}{preferences.currency}{Math.abs(net).toLocaleString()}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* List Body */}
+            <div className="p-5 space-y-3">
+              <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider block">
+                {language === 'id' ? 'DAFTAR TRANSAKSI' : 'TRANSACTION LEDGER LIST'}
+              </span>
+
+              {getTransactionsForSelectedGroup().length === 0 ? (
+                <div className="text-center py-12 text-zinc-500 bg-zinc-950/25 border border-dashed border-white/5 rounded-xl text-xs space-y-2">
+                  <p>{language === 'id' ? 'Seluruh transaksi periode ini telah dihapus.' : 'All transactions in this period have been deleted.'}</p>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHistoryGroup(null)}
+                    className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-[10px] font-mono uppercase cursor-pointer"
+                  >
+                    {language === 'id' ? 'Tutup' : 'Close'}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+                  {getTransactionsForSelectedGroup().map(tx => (
+                    <div key={tx.id} className="p-3 bg-zinc-950/60 rounded-xl border border-white/5 flex items-center justify-between gap-3 hover:border-white/10 transition leading-tight">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-white text-xs">{tx.description}</span>
+                          <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
+                            tx.type === 'income' ? 'bg-teal-500/10 text-teal-300' : 'bg-rose-500/10 text-rose-300'
+                          }`}>
+                            {tx.type === 'income' ? (language === 'id' ? 'Pemasukan' : 'Income') : (language === 'id' ? 'Pengeluaran' : 'Expense')}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <span className="text-[9px] text-zinc-500 font-mono block uppercase">{tx.category}</span>
+                          <span className="text-zinc-650 font-mono">•</span>
+                          <span className="text-[9px] text-zinc-550 font-mono block">{tx.date}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        <span className={`text-xs font-bold font-mono ${tx.type === 'income' ? 'text-teal-400' : 'text-rose-400'}`}>
+                          {tx.type === 'income' ? '+' : '-'}{preferences.currency}{tx.amount.toLocaleString()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(language === 'id' ? `Hapus transaksi "${tx.description}"?` : `Delete transaction "${tx.description}"?`)) {
+                              onDeleteTransaction(tx.id);
+                            }
+                          }}
+                          className="p-1.5 bg-rose-950/20 hover:bg-rose-900/30 text-rose-400 rounded transition duration-150 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-[#070708] border-t border-white/5 flex justify-end font-mono">
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryGroup(null)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold uppercase transition tracking-wider cursor-pointer"
+              >
+                {language === 'id' ? 'TUTUP PANEL' : 'CLOSE PANEL'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
