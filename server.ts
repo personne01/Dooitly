@@ -14,7 +14,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Setup JSON body parsing with slightly larger limits to handle image uploads
 app.use(express.json({ limit: "15mb" }));
